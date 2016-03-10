@@ -512,6 +512,8 @@ class Type
         ++i
       endForEach
 
+      #method generate_custom_class->Logical
+
     method has_global_references->Logical
       forEach (g in global_list)
         if (g.type.is_reference) return true
@@ -774,8 +776,18 @@ class Type
         ++i
       endForEach
 
-    method omit_output->Logical
-      return is_native or not is_used or (is_optional and element_type.is_reference)
+    method omit_definition->Logical
+      if (not is_used or (is_optional and element_type.is_reference)) return true
+      if (not is_native) return false
+
+      if (is_array)
+        return not element_type.is_compound
+      else
+        return true
+      endIf
+
+    method has_external_definition->Logical
+      return not omit_definition or (is_native and (not is_array or element_type.is_compound))
 
     method resolve->Type
       if (resolved) return this

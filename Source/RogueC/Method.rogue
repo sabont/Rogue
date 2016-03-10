@@ -182,7 +182,7 @@ class Method
     method is_task_conversion->Logical
       return (attributes.flags & Attribute.is_task_conversion)
 
-    method omit_output->Logical
+    method omit_definition->Logical
       return is_native or is_macro or not is_used or (is_generated and name=="create" and type_context.is_compound)
 
     method organize( scope=null:Scope, add_to_lookup=true:Logical )->Method

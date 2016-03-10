@@ -153,7 +153,7 @@ augment Program
       # RogueObject forward declarations
       writer.println "// FORWARD DECLARATIONS"
       forEach (type in type_list)
-        if (not type.omit_output and not type.is_primitive)
+        if (not type.omit_definition and not type.is_primitive)
           writer.print( "struct " ).print( type.cpp_class_name ).println( ";" );
         endIf
       endForEach
@@ -162,7 +162,7 @@ augment Program
       # Compound definitions
       writer.println "// COMPOUND DEFINITIONS"
       forEach (type in type_list)
-        if (type.is_compound and not type.omit_output)
+        if (type.is_compound and not type.omit_definition)
           type.print_data_definition( writer )
           writer.println
         endIf
@@ -182,7 +182,7 @@ augment Program
       # Class definitions
       writer.println "// CLASS DEFINITIONS"
       forEach (type in type_list)
-        if (not type.is_compound and not type.omit_output)
+        if (not type.is_compound and not type.omit_definition)
           type.print_data_definition( writer )
           writer.println
         endIf
@@ -192,7 +192,7 @@ augment Program
       # RogueType_X externs.
       writer.println "// ROGUE TYPES"
       forEach (type in type_list)
-        if (not type.omit_output or (type.is_native and not type.is_array))
+        if (type.has_external_definition)
           writer.print( "extern RogueType* RogueType" );
           writer.print( type.cpp_name ).println( ";" );
         endIf
@@ -247,6 +247,19 @@ augment Program
       endForEach
       writer.println
 
+      # Compound array creation functions
+      #{
+      #TYPEDARRAY
+      writer.println "// COMPOUND ARRAY CREATE METHODS"
+      forEach (type in type_list)
+        if (not type.is_compound and not type.omit_definition)
+          type.print_data_definition( writer )
+          writer.println
+        endIf
+      endForEach
+      writer.println
+      }#
+
       # write dynamic dipatch methods
       forEach (sig in native_method_signature_list)
         local m = native_method_signature_lookup[sig]  # one of the methods using this signature
@@ -288,13 +301,7 @@ augment Program
       # Trace Prototypes
       forEach (type in type_list)
         if (type.has_object_references and not type.is_reference_array and not type.is_aspect)
-
-          local trace_name = type.cpp_name
-          if (type.is_array and type.element_type.is_compound)
-            trace_name = Program.validate_cpp_name( type.name )
-          endIf
-
-          writer.print(   "void Rogue" ).print( trace_name ).println( "_trace( void* obj );" )
+          writer.print(   "void Rogue" ).print( type.cpp_name ).println( "_trace( void* obj );" )
         endIf
       endForEach
       writer.println
@@ -303,12 +310,7 @@ augment Program
       forEach (type in type_list)
         if (type.has_object_references and not type.is_reference_array and not type.is_aspect)
 
-          local trace_name = type.cpp_name
-          if (type.is_array and type.element_type.is_compound)
-            trace_name = Program.validate_cpp_name( type.name )
-          endIf
-
-          writer.print(   "void Rogue" ).print( trace_name ).println( "_trace( void* obj )" )
+          writer.print(   "void Rogue" ).print( type.cpp_name ).println( "_trace( void* obj )" )
           writer.println( "{" )
           writer.indent += 2
 
@@ -327,8 +329,8 @@ augment Program
           elseIf (type.is_array)
             # We know this is not a reference array and so it must be an array of
             # compounds containing references.
-            writer.println @|RogueArray* array = (RogueArray*) obj;
-                            |int count;
+            writer.println "$* array = ($*) obj;" (type.cpp_class_name,type.cpp_class_name)
+            writer.println "int count;"
 
             writer.print( type.element_type ).println( "* cur;" )
 
@@ -338,7 +340,7 @@ augment Program
                             |
                             |count = array->count;
 
-            writer.print( "cur = ((" ).print( type.element_type.cpp_class_name ).println( "*)(array->bytes)) - 1;" )
+            writer.print( "cur = array->elements - 1;" )
 
             writer.println( "while (--count >= 0)" )
             writer.println( "{" )
@@ -397,7 +399,7 @@ augment Program
         else       writer.println ","
 
         local m = type.find_method( "init_object()" )
-        if (m and not type.omit_output and m.is_used and m.statements.count > 1)
+        if (m and not type.omit_definition and m.is_used and m.statements.count > 1)
           writer.print "(RogueInitFn) "
           writer.print m.cpp_name
         else
@@ -420,7 +422,7 @@ augment Program
         else       writer.println ","
 
         local m = type.find_method( "init()" )
-        if (m and not type.omit_output and m.is_used and m.statements.count > 1)
+        if (m and not type.omit_definition and m.is_used and m.statements.count > 1)
           # Note: statement.count > 1 because there's a default return.
           writer.print "(RogueInitFn) "
           writer.print m.cpp_name
@@ -444,7 +446,7 @@ augment Program
         else       writer.println ","
 
         local m = type.find_method( "clean_up()" )
-        if (m and not type.omit_output and m.is_used and m.statements.count)
+        if (m and not type.omit_definition and m.is_used and m.statements.count)
           writer.print "(RogueCleanUpFn) "
           writer.print m.cpp_name
         else
@@ -470,12 +472,8 @@ augment Program
           if (type.is_reference_array)
             writer.print "RogueArray_trace"
           else
-            local trace_name = type.cpp_name
-            if (type.is_array and type.element_type.is_compound)
-              trace_name = Program.validate_cpp_name( type.name )
-            endIf
-
-            writer.print(   "Rogue" ).print( trace_name ).print( "_trace" )
+            #if (type.is_array and type.element_type.is_compound) trace_name = Program.validate_cpp_name( type.name )
+            writer.print( "Rogue" ).print( type.cpp_name ).print( "_trace" )
           endIf
         elseIf (type.is_class)
           writer.print "RogueObject_trace"
@@ -556,7 +554,7 @@ augment Program
       writer.indent += 2
       local table_index = 0
       forEach (type in type_list)
-        if (not type.omit_output)
+        if (not type.omit_definition)
           table_index = type.print_dynamic_method_table_entries( table_index, writer )
         endIf
       endForEach
@@ -624,7 +622,7 @@ augment Program
 
       # RogueType_X declarations.
       forEach (type in type_list)
-        if (not type.omit_output or (type.is_native and not type.is_array))
+        if (type.has_external_definition)
           writer.print( "RogueType* RogueType" );
           writer.print( type.cpp_name ).println( ";" );
         endIf
@@ -658,7 +656,7 @@ augment Program
 
       # Create types
       forEach (type in type_list)
-        if (not type.omit_output or (type.is_native and not type.is_array))
+        if (type.has_external_definition)
           writer.print("RogueType").print(type.cpp_name).print(" = &Rogue_types[ ").print(type.index).println(" ];")
           # TODO
         endIf
@@ -716,7 +714,7 @@ augment Program
 
       # Call all init_class() methods
       forEach (type in type_list)
-        if (not type.omit_output)
+        if (not type.omit_definition)
           local m = type.find_routine( "init_class()" )
           if (m and m.type_context is type)
             writer.print( m.cpp_name ).println( "();" )
@@ -739,7 +737,7 @@ augment Program
       # Instantiate all requisite singletons
       writer.println "// Instantiate requisite singletons"
       forEach (type in type_list)
-        if (not type.omit_output and type.is_singleton)
+        if (not type.omit_definition and type.is_singleton)
           writer.print( "ROGUE_SINGLETON( " ).print( type.cpp_name ).println( " );" )
         endIf
       endForEach
@@ -816,7 +814,7 @@ augment Program
               local trace_class_name = "Object"
               if (p.type.is_array)
                 if (p.type.element_type.is_compound and p.type.element_type.has_object_references)
-                  trace_class_name = Program.validate_cpp_name( p.type.name )
+                  trace_class_name = p.type.cpp_name
                 else
                   trace_class_name = "Array"
                 endIf
@@ -1212,14 +1210,14 @@ class CPPWriter
     noAction
 
   method mark_method_start( t:Type, m:Method )
-    if (m.omit_output) return
+    if (m.omit_definition) return
     #@trace "METHOD ", this.filepath, this.line_number, t.name, m.name
 
   method mark_method_end
     noAction
 
   method mark_routine_start ( m:Method )
-    if (m.omit_output) return
+    if (m.omit_definition) return
     #@trace "ROUTINE ", this.filepath, this.line_number, m.name
 
   method mark_routine_end
@@ -1283,7 +1281,7 @@ augment Type
     method assign_cpp_name
       cpp_name = Program.validate_cpp_name( name )
 
-      if (is_array or this is Program.type_NativeArray)
+      if ((is_array and not element_type.is_compound) or this is Program.type_NativeArray)
         cpp_class_name = "RogueArray"
         cpp_name = "Array"
 
@@ -1312,7 +1310,7 @@ augment Type
       endForEach
 
     method print_data_definition( writer:CPPWriter )
-      if (omit_output or is_primitive) return
+      if (omit_definition or is_primitive) return
 
       writer.print( "struct " ).print( cpp_class_name )
       local is_error = false
@@ -1326,6 +1324,20 @@ augment Type
       endIf
       writer.println.println( "{" )
       writer.indent += 2
+
+      if (is_array and element_type.is_compound)
+        writer.println @|int  count;
+                        |int  element_size;
+                        |bool is_reference_array;
+
+        writer.println "$ elements[];" (element_type.cpp_class_name)
+
+      #TYPEDARRAY
+      #{
+        writer.println
+        writer.println "static $* create( int count );"
+        }#
+      endIf
 
       # Global Properties
       if (global_list.count)
@@ -1429,38 +1441,6 @@ augment Type
 
         endIf
 
-        #{
-        # trace() method
-        if (has_object_references and not is_reference_array)
-          writer.println(   "void trace()" )
-          writer.println( "{" )
-          writer.indent += 2
-          forEach (p in property_list)
-            if (p.type.is_reference)
-              writer.print("ROGUE_TRACE( " ).print( p.cpp_name ).println( " );" )
-            elseIf (p.type.has_object_references)
-              # Compound
-              writer.print( p.cpp_name ).println( ".trace();" )
-            endIf
-          endForEach
-          writer.indent -= 2
-          writer.println( "}" )
-        endIf
-        }#
-
-        #{
-        # check()
-        if (is_optional)
-          writer.print( "bool check( " ).print( element_type ).println( "* checked )" )
-          writer.println @|{
-                          |  if ( !exists ) return false;
-                          |  *checked = value;
-                          |  return true;
-                          |}
-                          |
-        endIf
-        }#
-
       endIf
 
       writer.indent -= 2
@@ -1561,7 +1541,7 @@ augment Type
       endForEach
 
     method print_type_configuration( writer:CPPWriter )
-      if (omit_output) return
+      if (omit_definition) return
       writer.print( "  type_" ).print( cpp_name ).print( " = Rogue_types[" ).print( index )
       writer.print( "].init( " ).print( index ).print( ", \"" ).print( cpp_class_name ).print( "\", sizeof(Class" )
       writer.print( cpp_class_name ).println( ") );" )
@@ -1602,7 +1582,7 @@ augment Method
       m.cpp_name = null
 
     method print_prototype( writer:CPPWriter )
-      if (omit_output) return
+      if (omit_definition) return
       print_signature( writer )
       writer.println( ";" )
 
@@ -1631,7 +1611,7 @@ augment Method
       writer.print( ")" )
 
     method print_definition( writer:CPPWriter )
-      if (omit_output) return
+      if (omit_definition) return
 
       print_signature( writer )
       writer.println

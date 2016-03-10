@@ -4606,7 +4606,7 @@ RogueLogical RogueMethod__is_requisite( RogueClassMethod* THIS );
 RogueLogical RogueMethod__is_global( RogueClassMethod* THIS );
 RogueLogical RogueMethod__is_task( RogueClassMethod* THIS );
 RogueLogical RogueMethod__is_task_conversion( RogueClassMethod* THIS );
-RogueLogical RogueMethod__omit_output( RogueClassMethod* THIS );
+RogueLogical RogueMethod__omit_definition( RogueClassMethod* THIS );
 RogueClassMethod* RogueMethod__organize__Scope_Logical( RogueClassMethod* THIS, RogueClassScope* scope_0, RogueLogical add_to_lookup_1 );
 void RogueMethod__resolve( RogueClassMethod* THIS );
 void RogueMethod__convert_augment_to_standalone( RogueClassMethod* THIS );
@@ -4710,7 +4710,8 @@ void RogueType__inherit_routines__MethodList_String_MethodTable( RogueClassType*
 void RogueType__inherit_routine__Method_MethodList_String_MethodTable( RogueClassType* THIS, RogueClassMethod* m_0, RogueMethodList* list_1, RogueClassString_MethodTable* lookup_2 );
 void RogueType__apply_augment_labels__Method_Method( RogueClassType* THIS, RogueClassMethod* aug_m_0, RogueClassMethod* existing_m_1 );
 void RogueType__index_and_move_inline_to_end__MethodList( RogueClassType* THIS, RogueMethodList* list_0 );
-RogueLogical RogueType__omit_output( RogueClassType* THIS );
+RogueLogical RogueType__omit_definition( RogueClassType* THIS );
+RogueLogical RogueType__has_external_definition( RogueClassType* THIS );
 RogueClassType* RogueType__resolve( RogueClassType* THIS );
 RogueLogical RogueType__should_cull( RogueClassType* THIS );
 void RogueType__trace_used_code( RogueClassType* THIS );
