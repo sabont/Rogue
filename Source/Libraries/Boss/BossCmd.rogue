@@ -1,0 +1,239 @@
+module Boss
+uses ParseKit<<Boss>>
+
+#==============================================================================
+# Cmd Nodes (Parse Tree / AST)
+#==============================================================================
+augment Cmd
+  METHODS
+    method execute( vm:BossVM )
+      throw UnsupportedOperationError()
+
+    method execute_int32( vm:BossVM )->Int32
+      throw UnsupportedOperationError()
+
+    method require_type( vm:BossVM )->BossType
+      local result = type( vm )
+      if (result is null) throw t.error( "Value required." )
+      return result
+
+    method require_value( vm:BossVM )->this
+      if (type(vm) is null) throw t.error( "Value required." )
+      return this
+
+    method resolve( vm:BossVM )->Cmd
+      throw UnsupportedOperationError()
+
+    method resolve_assignment( new_value:Cmd )->Cmd
+      throw t.error( "Illegal assignment" )
+
+    method type( vm:BossVM )->BossType
+      return null
+endAugment
+
+augment CmdStatements
+  METHODS
+    method execute( vm:BossVM )
+      (forEach in this).execute( vm )
+
+    method resolve( vm:BossVM )
+      forEach (statement at index in this)
+        this[ index ] = statement.resolve( vm )
+      endForEach
+endAugment
+
+augment CmdArgs
+  METHODS
+    method resolve( vm:BossVM )
+      forEach (arg at index in args)
+        args[ index ] = arg.resolve( vm )
+        # TODO: require_value
+      endForEach
+endAugment
+
+augment CmdUnary
+  METHODS
+    method resolve( vm:BossVM )->Cmd
+      operand = operand.resolve( vm )
+      return this
+
+    method type( vm:BossVM )->BossType
+      return operand.type( vm )
+endAugment
+
+class BossCmdUnary<<$SYMBOL>> : CmdUnary
+  METHODS
+    method execute( vm:BossVM )
+      operand.execute( vm )
+
+    method execute_int32( vm:BossVM )->Int32
+      return $SYMBOL operand.execute_int32(vm)
+
+    method op->String
+      return $string($SYMBOL)
+endClass
+
+augment CmdBinary
+  METHODS
+    method resolve( vm:BossVM )->Cmd
+      left = left.resolve( vm )
+      right = right.resolve( vm )
+      return resolve_for_types( vm, left.require_type(vm), right.require_type(vm) )
+
+    method resolve_for_types( vm:BossVM, left_type:BossType, right_type:BossType )->Cmd
+      throw UnsupportedOperationError()
+
+    method type( vm:BossVM )->BossType
+      return left.type( vm )
+endAugment
+
+class CmdBinaryOp<<$SYMBOL>> : CmdBinary
+  METHODS
+    method execute( vm:BossVM )
+      left.execute( vm )
+      right.execute( vm )
+
+    method execute_int32( vm:BossVM )->Int32
+      return left.execute_int32( vm ) $SYMBOL right.execute_int32( vm )
+
+    method op->String
+      return $string($SYMBOL)
+
+    method resolve_for_types( vm:BossVM, left_type:BossType, right_type:BossType )->Cmd
+      require (left_type is right_type)
+      contingent
+        necessary (left_type.is_primitive)
+      endContingent
+      return this
+endClass
+
+class CmdLiteralInteger( t, value:Int32 ) : Cmd
+  METHODS
+    method execute( vm:BossVM )
+      noAction
+
+    method execute_int32( vm:BossVM )->Int32
+      return value
+
+    method resolve( vm:BossVM )->Cmd
+      return this
+
+    method to->String
+      return value
+
+    method type( vm:BossVM )->BossType
+      return vm.type_Int32
+
+endClass
+
+class CmdAdd : CmdBinaryOp<<+>>
+  METHODS
+endClass
+
+class CmdSubtract : CmdBinaryOp<<->>
+  METHODS
+endClass
+
+class CmdMultiply : CmdBinaryOp<<*>>
+  METHODS
+endClass
+
+class CmdDivide : CmdBinary
+  METHODS
+    method execute_int32( vm:BossVM )->Int32
+      local rhs = right.execute_int32( vm )
+      if (rhs == 0) throw t.error( "Illegal division by zero." )
+      return left.execute_int32(vm) / rhs
+
+    method op->String
+      return "/"
+endClass
+
+class CmdMod : CmdBinary
+  METHODS
+    method execute_int32( vm:BossVM )->Int32
+      local rhs = right.execute_int32( vm )
+      if (rhs == 0) throw t.error( "Illegal modulo by zero." )
+      return left.execute_int32(vm) % rhs
+
+    method op->String
+      return "%"
+endClass
+
+class CmdPower : CmdBinaryOp<<^>>
+  METHODS
+endClass
+
+class CmdBitwiseXor : CmdBinaryOp<<~>>
+  METHODS
+endClass
+
+class CmdBitwiseOr : CmdBinaryOp<<|>>
+  METHODS
+endClass
+
+class CmdBitwiseAnd : CmdBinaryOp<<&>>
+  METHODS
+endClass
+
+class CmdLeftShift : CmdBinaryOp<<:<<:>>
+  METHODS
+    method op->String
+      return ":<<:"
+endClass
+
+class CmdRightShift : CmdBinaryOp<<:>>:>>
+  METHODS
+    method op->String
+      return ":>>:"
+endClass
+
+class CmdRightShiftX : CmdBinaryOp<<:>>>:>>
+  METHODS
+    method op->String
+      return ":>>>:"
+endClass
+
+class CmdNegate : BossCmdUnary<<->>
+  METHODS
+endClass
+
+class CmdBitwiseNot : BossCmdUnary<<!>>
+  METHODS
+endClass
+
+class CmdAssign( t, left:Cmd, right:Cmd ) : Cmd
+  METHODS
+    method resolve( vm:BossVM )->Cmd
+      return left.resolve_assignment( right.resolve(vm) )
+
+    method to->String
+      return "$ = $" (left,right)
+endClass
+
+class CmdAccess( t, name:String ) : Cmd
+  METHODS
+    method init( t )
+      name = t->String
+
+    method resolve( vm:BossVM )->Cmd
+      return CmdReadVariable( t, name ).resolve( vm )
+
+    method resolve_assignment( vm:BossVM, new_value:Cmd )->Cmd
+      return CmdWriteVariable( t, name, new_value ).resolve( vm )
+endClass
+
+class CmdReadVariable( t, name:String ) : Cmd
+  METHODS
+    method execute_int32( vm:BossVM )->Int32
+      trace "TODO"
+      return 0
+endClass
+
+class CmdWriteVariable( t, name:String, new_value:Cmd ) : Cmd
+  METHODS
+    method execute_int32( vm:BossVM )->Int32
+      trace "TODO"
+      return 0
+endClass
+

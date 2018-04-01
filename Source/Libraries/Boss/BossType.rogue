@@ -1,0 +1,14 @@
+module Boss
+uses ParseKit<<Boss>>
+
+class BossType
+  PROPERTIES
+    t    : Token
+    name : String
+
+    is_primitive : Logical
+
+  METHODS
+    method init( t, name, &is_primitive )
+
+endClass

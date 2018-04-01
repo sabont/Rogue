@@ -1,0 +1,47 @@
+module Boss
+uses ParseKit<<Boss>>
+
+#==============================================================================
+# BossVM
+#==============================================================================
+class BossVM
+  PROPERTIES
+    parser = BossParser( this )
+
+    sp          : Int32
+    int32_stack = Int32[]
+
+    internal_t : Token
+    type_Int32 : BossType
+
+  METHODS
+    method init_object
+      internal_t = Token( TokenType.EOI, "[BossVM]", 0, 0 )
+
+      type_Int32 = BossType( internal_t, "Int32", &is_primitive )
+
+    method execute( filepath:String, source:String, &print_results )
+      try
+        parser.open( filepath, source )
+        local statements = CmdStatements()
+        parser.parse_multi_line_statements( statements )
+        statements.resolve( this )
+        forEach (statement in statements)
+          local type = statement.type( this )
+          if (type)
+            if (type is type_Int32)
+              println statement.execute_int32( this )
+            endIf
+          endIf
+        endForEach
+      catch (err:BossError)
+        Console.error.print( "ERROR: " ).println( err.message )
+        Console.error.println
+        forEach (line at index in LineReader(source))
+          Console.error.println( line )
+          if (index+1 == err.line) escapeForEach
+        endForEach
+        Console.error.print( " " * (err.column-1) ).println( '^' )
+      endTry
+endClass
+

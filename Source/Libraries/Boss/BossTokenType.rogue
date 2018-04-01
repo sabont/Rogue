@@ -1,0 +1,59 @@
+#==============================================================================
+# BossTokenType.rogue
+#==============================================================================
+module Boss
+uses ParseKit<<Boss>>
+
+#------------------------------------------------------------------------------
+# TokenType
+#------------------------------------------------------------------------------
+augment TokenType
+  EOI( "eoi", "[end of input]", &is_structural )
+  EOL( "\n",  "[end of line]" )
+  INTEGER( "integer" )
+  IDENTIFIER( "identifier" )
+
+  KEYWORD_CLEAR       ( "clear", &is_keyword )
+  KEYWORD_EXIT        ( "exit",  &is_keyword )
+  KEYWORD_LIST        ( "list",  &is_keyword )
+  KEYWORD_Q           ( "q",     &is_keyword )
+  KEYWORD_QUIT        ( "quit",  &is_keyword )
+  KEYWORD_TRUE        ( "true",  &is_keyword )
+  KEYWORD_FALSE       ( "false", &is_keyword )
+
+  SYMBOL_AMPERSAND    ( "&",   &is_symbol )
+  SYMBOL_ASTERISK     ( "*",   &is_symbol )
+  SYMBOL_BANG         ( "!",   &is_symbol )
+  SYMBOL_CARET        ( "^",   &is_symbol )
+  SYMBOL_CLOSE_PAREN  ( ")",   &is_symbol, &is_structural )
+  SYMBOL_DOLLAR       ( "$",   &is_symbol )
+  SYMBOL_EQUALS       ( "=",   &is_symbol )
+  SYMBOL_LEFT_SHIFT   ( "<<",  &is_symbol )
+  SYMBOL_MINUS        ( "-",   &is_symbol )
+  SYMBOL_OPEN_PAREN   ( "(",   &is_symbol )
+  SYMBOL_PERCENT      ( "%",   &is_symbol )
+  SYMBOL_PLUS         ( "+",   &is_symbol )
+  SYMBOL_RIGHT_SHIFT  ( ">>",  &is_symbol )
+  SYMBOL_RIGHT_SHIFT_X( ">>>", &is_symbol )
+  SYMBOL_SEMICOLON    ( ";",   &is_symbol )
+  SYMBOL_SLASH        ( "/",   &is_symbol )
+  SYMBOL_TILDE        ( "~",   &is_symbol )
+  SYMBOL_VERTICAL_BAR ( "|",   &is_symbol )
+endAugment
+
+
+#------------------------------------------------------------------------------
+# Token
+#------------------------------------------------------------------------------
+augment Token
+  METHODS
+    method to->String
+      <insert>
+      which (type)
+        case TokenType.INTEGER
+          return this->Int32->String
+      endWhich
+
+      # This will fall through to the original definition.
+endAugment
+

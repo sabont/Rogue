@@ -1,0 +1,51 @@
+module Boss
+uses ParseKit<<Boss>>
+
+#==============================================================================
+# ScanRules
+#==============================================================================
+augment ScanRules
+  METHODS
+    method configure
+      #{
+      on( "$",
+        function(tokenizer:BossTokenizer)
+          tokenizer.add( Token(TokenType.INTEGER,tokenizer.scan_int64(16)) )
+        endFunction
+      )
+      }#
+endAugment
+
+
+#==============================================================================
+# BossTokenizer
+#==============================================================================
+class BossTokenizer : Tokenizer
+  METHODS
+    method on_comment( text:String )
+      noAction
+
+    method on_identifier( name:String )
+      tokens.add( Token(TokenType.IDENTIFIER,name) )
+
+    method on_integer( value:Int64 )
+      tokens.add( Token(TokenType.INTEGER,value) )
+
+      # Note: can scan further characters to distinguish between Int32
+      # and Int64 (if (consume("L")) ...) or use something like this
+      # for automatic classification:
+      #
+      # if (value >= Int32.minimum and value <= Int32.maximum)
+      #   tokens.add( Token(TokenType.INT32,value) )
+      # else
+      #   tokens.add( Token(TokenType.INT64,value) )
+      # endIf
+
+    method on_real( value:Real64 )
+      throw Token(TokenType.EOI).error( "Real numbers are not supported." )
+
+    method on_string( text:String )
+      throw Token(TokenType.EOI).error( "Strings are not supported." )
+endClass
+
+

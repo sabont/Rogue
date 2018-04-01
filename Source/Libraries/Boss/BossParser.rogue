@@ -1,0 +1,125 @@
+module Boss
+uses ParseKit<<Boss>>
+
+#==============================================================================
+# BossParser
+#==============================================================================
+class BossParser : Parser
+  PROPERTIES
+    vm               : BossVM
+    parse_expression : ParseRule
+
+  METHODS
+    method init( vm )
+      local rule = add_nested( ParseRule("expression" ) )
+
+      # <<, >>, >>>
+      rule = add_nested( BinaryParseRule("bit_shift") )
+      rule.on( "<<",  <<CmdLeftShift>> )
+      rule.on( ">>",  <<CmdRightShift>> )
+      rule.on( ">>>", <<CmdRightShiftX>> )
+
+      # ~
+      rule = add_nested( BinaryParseRule("bitwise_xor") )
+      rule.on( "~", <<CmdBitwiseXor>> )
+
+      # |
+      rule = add_nested( BinaryParseRule("bitwise_or") )
+      rule.on( "|", <<CmdBitwiseOr>> )
+
+      # &
+      rule = add_nested( BinaryParseRule("bitwise_and") )
+      rule.on( "&", <<CmdBitwiseAnd>> )
+
+      # +, -
+      rule = add_nested( BinaryParseRule("add_subtract") )
+      rule.on( "+", <<CmdAdd>> )
+
+      rule.on( "-", <<CmdSubtract>> )
+
+      # *, /, %
+      rule = add_nested( BinaryParseRule("multiply_divide_mod") )
+      rule.on( "*", <<CmdMultiply>> )
+      rule.on( "/", <<CmdDivide>> )
+      rule.on( "%", <<CmdMod>> )
+
+      # ^
+      rule = add_nested( BinaryParseRule("power") )
+      rule.on( "^", <<CmdPower>> )
+
+      # !
+      rule = add_nested( UnaryParseRule("negate") )
+      rule.on( "-", <<CmdNegate>> )
+      rule.on( "!", <<CmdBitwiseNot>> )
+
+      # term
+      rule = add_nested( ParseRule("term") )
+      rule.on( "integer",
+        function( parser:BossParser )->Cmd
+          local t = parser.read
+          return CmdLiteralInteger(t,t->Int32)
+        endFunction
+      )
+      rule.on( "(",
+        function( parser:BossParser )->Cmd
+          parser.must_consume( TokenType.SYMBOL_OPEN_PAREN )
+          local result = parser.parse_expression()
+          parser.must_consume( TokenType.SYMBOL_CLOSE_PAREN )
+          return result
+        endFunction
+      )
+      rule.on( "identifier", <<CmdAccess>> )
+      rule.on_default( (parser) => throw parser.peek.error( "Syntax error: unexpected $." (parser.peek.description) ) )
+
+    method consume_end_commands->Logical
+      local consumed_any = false
+      while (consume_eols or consume(TokenType.SYMBOL_SEMICOLON)) consumed_any = true
+      return consumed_any
+
+    method next_is_statement->Logical [macro]
+      (not this.peek.type.is_structural)
+
+    method parse_statements( statements:CmdStatements, end_type:TokenType )
+      if (consume_eols)
+        # multi-line while
+        parse_multi_line_statements( statements )
+        must_consume( end_type )
+      else
+        # single-line while
+        parse_single_line_statements( statements )
+        consume_eols
+      endIf
+
+    method parse_multi_line_statements( statements:CmdStatements )
+      consume_end_commands
+      while (next_is_statement)
+        parse_statement( statements, &allow_control_structures )
+        consume_end_commands
+      endWhile
+
+    method parse_single_line_statements( statements:CmdStatements )
+      while (next_is_statement)
+        parse_statement( statements, &!allow_control_structures )
+        if (not consume(TokenType.SYMBOL_SEMICOLON)) return
+        while (consume(TokenType.SYMBOL_SEMICOLON)) noAction
+      endWhile
+
+      if (not consume(TokenType.EOL))
+        if (next_is_statement)
+          must_consume( TokenType.EOL )  # force an error
+        endIf
+      endIf
+
+    method parse_statement( statements:CmdStatements, &allow_control_structures )
+      local expr = parse_expression()
+
+      local t = peek
+      if (consume(TokenType.SYMBOL_EQUALS))
+        statements.add( CmdAssign(t,expr,parse_expression()) )
+      else
+        statements.add( expr )
+      endIf
+
+endClass
+
+
