@@ -1,0 +1,1936 @@
+uses Geometry [export]
+
+class Variant( type:Int32, value:Int64, x:Real64, y:Real64, z:Real64, object:Object ) [compound]
+  GLOBAL PROPERTIES
+    EMPTY_STRING = Variant("")
+    TRUE         = Variant(true)
+    FALSE        = Variant(false)
+
+  ENUMERATE
+    FORMATTED = 1
+    OMIT_COMMAS = 2
+
+    TYPE_UNDEFINED = 0
+    TYPE_NULL
+    TYPE_LOGICAL
+    TYPE_BYTE
+    TYPE_CHARACTER
+    TYPE_INT32
+    TYPE_INT64
+    TYPE_REAL64
+    LAST_ATOMIC_VALUE_TYPE
+
+    TYPE_XY
+    TYPE_BOX
+    LAST_COMPOUND_VALUE_TYPE
+
+    FIRST_OBJECT_TYPE
+    TYPE_OBJECT
+    TYPE_STRING
+    TYPE_LIST
+    TYPE_TABLE
+    TYPE_CUSTOM # 'object' will be a CustomVariant object.
+
+  GLOBAL METHODS
+    method create->Variant
+      return UndefinedVariant
+
+    method create( type:Int32, value:Int64 )->Variant [macro]
+      return Variant( type, value, 0, 0, 0, null )
+
+    method create( type:Int32, object:Object )->Variant [macro]
+      return Variant( type, 0, 0, 0, 0, object )
+
+    method create( value:Character )->Variant
+      return Variant( TYPE_CHARACTER, value )
+
+    method create( value:Logical )->Variant
+      return Variant( TYPE_LOGICAL, value->Int32 )
+
+    method create( value:Byte )->Variant
+      return Variant( TYPE_BYTE, value )
+
+    method create( value:Int32 )->Variant
+      return Variant( TYPE_INT32, value )
+
+    method create( value:Real32 )->Variant
+      return Variant( TYPE_REAL64, 0, value, 0, 0, null )
+
+    method create( value:Real64 )->Variant
+      return Variant( TYPE_REAL64, 0, value, 0, 0, null )
+
+    method create( value:Int64 )->Variant
+      return Variant( TYPE_INT64, value )
+
+    method create( value:Object )->Variant
+      if (value is null)           return NullVariant
+      if (value instanceOf Variant) return value as Variant
+      if (value instanceOf String) return Variant( TYPE_STRING, 0, 0, 0, 0, value )
+      return Variant( TYPE_OBJECT, value )
+
+    method create( value:String )->Variant
+      if (value is null) return NullVariant
+      return Variant( TYPE_STRING, value )
+
+    method create( xy:XY )->Variant
+      return Variant( TYPE_XY, 0, xy.x, xy.y, 0, null )
+
+    method create( box:Box )->Variant
+      return Variant( TYPE_BOX, box.size.x.integer_bits, box.position.x, box.position.y, box.size.y, null )
+
+    method create( value:Variant )->Variant
+      return value
+
+    method create( value:Variant[] )->Variant
+      return Variant( TYPE_LIST, value )
+
+    method create( value:Byte[] )->Variant
+      local result = list
+      result.reserve( value.count )
+      result.add( forEach in value )
+      return result
+
+    method create( value:Int32[] )->Variant
+      local result = list
+      result.reserve( value.count )
+      result.add( forEach in value )
+      return result
+
+    method create( value:Int64[] )->Variant
+      local result = list
+      result.reserve( value.count )
+      result.add( forEach in value )
+      return result
+
+    method create( value:Real64[] )->Variant
+      local result = list
+      result.reserve( value.count )
+      result.add( forEach in value )
+      return result
+
+    method create( value:String[] )->Variant
+      local result = list
+      result.reserve( value.count )
+      forEach (v in value)
+        result.add( v )
+      endForEach
+      return result
+
+    method load( file:File )->Variant
+      return VariantJSON.load( file )
+
+    method list->Variant
+      return Variant( TYPE_LIST, 0, 0, 0, 0, Variant[] )
+
+    method parse( json:String )->Variant
+      return VariantJSON.parse( json )
+
+    method table->Variant
+      return Variant( TYPE_TABLE, 0, 0, 0, 0, StringTable<<Variant>>() )
+
+    method operator?( value:Variant )->Logical
+      if (value.type == TYPE_NULL or value.type == TYPE_UNDEFINED) return false
+      return value->Logical
+
+  METHODS
+    method add( value:Byte ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Character ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Int32 ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Int64 ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Logical ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Real64 ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:Object ) [macro]
+      this.add( Variant(value) )
+
+    method add( value:String )
+      this.add( Variant(value) )
+
+    method add( value:Variant )
+      which (type)
+        case TYPE_LIST
+          (object as Variant[]).add( value )
+        case TYPE_CUSTOM
+          (object as CustomVariant).add( value )
+
+      endWhich
+
+    method add_all( other:Variant )
+      which (type)
+        case TYPE_LIST
+          if (other.is_collection)
+            if (other.count)
+              local this_list = object as Variant[]
+              this_list.reserve( other.count )
+              which (other.type)
+                case TYPE_LIST
+                  this_list.add( forEach in other.object as Variant[] )
+                case TYPE_TABLE
+                  local cur = (other.object as StringTable<<Variant>>).first_entry
+                  while (cur)
+                    this_list.add( cur.value )
+                    cur = cur.next_entry
+                  endWhile
+                others
+                  this_list.add( forEach in other )
+              endWhich
+            endIf
+          else
+            add( other )
+          endIf
+
+        case TYPE_TABLE
+          if (other.is_table)
+            local this_table = object as StringTable<<Variant>>
+            local cur = (other.object as StringTable<<Variant>>).first_entry
+            while (cur)
+              this_table[ cur.key ] = cur.value
+              cur = cur.next_entry
+            endWhile
+          endIf
+
+        case TYPE_CUSTOM
+          (object as CustomVariant).add_all( other )
+      endWhich
+
+    method clear
+      which (type)
+        case TYPE_LIST
+          (object as Variant[]).clear
+
+        case TYPE_TABLE
+          (object as StringTable<<Variant>>).clear
+
+        case TYPE_CUSTOM
+          (object as CustomVariant).clear
+      endWhich
+
+    method cloned->Variant
+      which (type)
+        case TYPE_STRING, TYPE_OBJECT
+          return Variant( type, 0, 0, 0, 0, object )
+
+        case TYPE_LIST
+          return Variant( TYPE_LIST, 0, 0, 0, 0, (object as Variant[]).cloned )
+
+        case TYPE_TABLE
+          return Variant( TYPE_TABLE, 0, 0, 0, 0, (object as StringTable<<Variant>>).cloned )
+
+        case TYPE_CUSTOM
+          local clone = (object as CustomVariant).cloned
+          if (clone) return Variant( TYPE_CUSTOM, 0, 0, 0, 0, clone )
+          else       return UndefinedVariant
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method apply( fn:Function(Variant)->Variant )->Variant
+      # Applies the given function to this value and all contained values,
+      # rebuilding the value node hierarchy as it goes.
+      #
+      # Example:
+      #   # Print out all strings in a Variant hierarchy
+      #   local fn = function( value:Variant )->Variant
+      #     if (value.is_string) println value
+      #     return value
+      #   endFunction
+      #   some_value.apply( fn )
+      which (type)
+        case TYPE_LIST
+          forEach (v at index in this_list = object as Variant[])
+            this_list[ index ] = v.apply( fn )
+          endForEach
+
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur)
+            cur.value = cur.value.apply( fn )
+            cur = cur.next_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          (object as CustomVariant).apply( fn )
+
+      endWhich
+
+      local result = fn( this )
+      if (result is null) return NullVariant
+      else                return result
+
+    method contains( table_key_or_list_value:String )->Logical
+      which (type)
+        case TYPE_TABLE
+          local entry = (object as StringTable<<Variant>>).find( table_key_or_list_value )
+          return entry?
+        case TYPE_STRING
+          return (object as String).contains( table_key_or_list_value )
+        others
+          return contains( Variant(table_key_or_list_value) )
+      endWhich
+
+    method contains( table_key_or_list_value:Variant )->Logical
+      which (type)
+        case TYPE_LIST:   return (object as Variant[]).contains( table_key_or_list_value )
+        case TYPE_TABLE:  return contains( table_key_or_list_value->String )
+        case TYPE_STRING: return contains( table_key_or_list_value->String )
+        case TYPE_CUSTOM: return (object as CustomVariant).contains( table_key_or_list_value )
+      endWhich
+      return false
+
+    method contains( query:(Function(Variant)->Logical) )->Logical
+      return not first(query).is_undefined
+
+    method count->Int32
+      which (type)
+        case TYPE_LIST
+          return (object as Variant[]).count
+
+        case TYPE_TABLE
+          return (object as StringTable<<Variant>>).count
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).count
+
+        others
+          return 0
+      endWhich
+
+    method count( query:(Function(Variant)->Logical) )->Int32
+      which (type)
+        case TYPE_LIST
+          local result = 0
+          forEach (v in object as Variant[])
+            if (query(v)) ++result
+          endForEach
+          return result
+
+        case TYPE_TABLE
+          local result = 0
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur)
+            if (query(cur.value)) ++result
+            cur = cur.next_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).count
+
+        others
+          return 0
+
+      endWhich
+
+      #{
+    method compressed->Variant
+      if (contains("@id_list") and contains("@indexed_data")) return this
+
+      local builder = VariantIDTableBuilder()
+      local indexed_data = encode_indexed( builder )
+
+      local result = @{ "@id_list":builder.id_list, "@indexed_data":indexed_data }
+      return result
+
+    method decompressed->Variant
+      if (not contains("@id_list") or not contains("@indexed_data")) return this
+
+      local table = VariantIDLookupTable( this )
+      return this["@indexed_data"].decode_indexed( table )
+
+    method decode_indexed( id_table:VariantIDLookupTable )->Variant
+      return this
+
+    method encode_indexed( id_table_builder:VariantIDTableBuilder )->Variant
+      return this
+      }#
+
+    method ensure_list( key:String )->Variant
+      # When called on a Variant table, ensures that the table contains a list
+      # with the given key, creating it if necessary, and returns that list.
+      # When called on any other type of Variant, a new Variant list
+      # will be returned but it won't be stored in a table.
+      if (type == TYPE_TABLE)
+        local list = this[ key ]
+        if (list.is_list) return list
+        list = Variant.list
+        this[ key ] = list
+        return list
+      else
+        return Variant.list
+      endIf
+
+    method ensure_table( key:String )->Variant
+      # When called on a Variant table, ensures that the table contains a table
+      # with the given key, creating it if necessary, and returns that table.
+      # When called on any other type of Variant, a new Variant table
+      # will be returned but it won't be stored in a table.
+      if (type == TYPE_TABLE)
+        local table = this[ key ]
+        if (table.is_list) return table
+        table = Variant.table
+        this[ key ] = table
+        return table
+      else
+        return Variant.table
+      endIf
+
+    method exists->Logical [macro]
+      return not (this.type == Variant.TYPE_UNDEFINED or this.type == Variant.TYPE_NULL)
+
+    method first->Variant
+      if (count == 0) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST:   return (object as Variant[]).first
+        case TYPE_TABLE:  return (object as StringTable<<Variant>>).first_entry.value
+        case TYPE_CUSTOM: return (object as CustomVariant).first
+        others:           return UndefinedVariant
+      endWhich
+
+    method first( query:(Function(Variant)->Logical) )->Variant
+      if (count == 0) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST
+          forEach (value in (object as Variant[]))
+            if (query(value)) return value
+          endForEach
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur)
+            if (query(cur.value)) return cur.value
+            cur = cur.next_entry
+          endWhile
+        case TYPE_CUSTOM
+          return (object as CustomVariant).first( query )
+        others
+      endWhich
+
+      return UndefinedVariant
+
+    method get( index:Int32 )->Variant
+      which (type)
+        case TYPE_LIST
+          return (object as Variant[])[ index ]
+
+        case TYPE_TABLE
+          return (object as StringTable<<Variant>>)[ index ]
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant)[ index ]
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method get( key:String )->Variant
+      which (type)
+        case TYPE_TABLE
+          local result = (object as StringTable<<Variant>>)[ key ]
+          if (result ) return result
+          else         return UndefinedVariant
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant)[ key ]
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method get( query:(Function(Variant)->Logical) )->Variant
+      which (type)
+        case TYPE_LIST
+          local results = UndefinedVariant
+          forEach (v in object as Variant[])
+            if (query(v))
+              if (results.is_undefined) results = Variant.list
+              results.add( v )
+            endIf
+          endForEach
+          return results
+
+        case TYPE_TABLE
+          local results = UndefinedVariant
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur)
+            if (query(cur.value))
+              if (results.is_undefined) results = Variant.list
+              results.add( cur.value )
+            endIf
+            cur = cur.next_entry
+          endWhile
+          return results
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant)[ query ]
+
+        others
+          return UndefinedVariant
+
+      endWhich
+
+    method insert( value:Int32, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:Int64, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:Logical, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:Real64, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:Object, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:String, before_index=0:Int32 ) [macro]
+      this.insert( Variant(value), before_index )
+
+    method insert( value:Variant, before_index=0:Int32 )
+      which (type)
+        case TYPE_LIST:   (object as Variant[]).insert( value, before_index )
+        case TYPE_CUSTOM: (object as CustomVariant).insert( value, before_index )
+      endWhich
+
+    method insert_all( other:Variant, before_index=0:Int32 )
+      if (other.is_collection)
+        which (this.type)
+          case TYPE_LIST
+            local list = (object as Variant[])
+            list.shift( before_index, &delta=other.count, &fill=UndefinedVariant )
+            forEach (value at i in other) list[ before_index+i ] = value
+          case TYPE_TABLE
+            add_all( other )
+          case TYPE_CUSTOM
+            (object as CustomVariant).insert_all( other, before_index )
+        endWhich
+      else
+        insert( other, before_index )
+      endIf
+
+    method is_complex->Logical
+      if (not is_collection or count == 0) return false
+      if (count > 1) return true
+      return (first.is_complex)
+
+    method is_collection->Logical
+      which (type)
+        case TYPE_LIST, TYPE_TABLE
+          return true
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).is_collection
+
+        others
+          return false
+      endWhich
+
+    method is_int32->Logical [macro]
+      return this.type == Variant.TYPE_INT32
+
+    method is_int64->Logical [macro]
+      return this.type == Variant.TYPE_INT64
+
+    method is_list->Logical [macro]
+      return this.type == Variant.TYPE_LIST
+
+    method is_logical->Logical [macro]
+      return this.type == Variant.TYPE_LOGICAL
+
+    method is_null->Logical [macro]
+      return this.type == Variant.TYPE_NULL
+
+    method is_non_null->Logical [macro]
+      return this.type != Variant.TYPE_NULL
+
+    method is_number->Logical
+      return select(type){ TYPE_BYTE,TYPE_CHARACTER,TYPE_REAL64,TYPE_INT32,TYPE_INT64:true || false }
+
+    method is_object->Logical [macro]
+      return this.type == Variant.TYPE_OBJECT
+
+    method is_real64->Logical [macro]
+      return this.type == Variant.TYPE_REAL64
+
+    method is_string->Logical [macro]
+      return this.type == Variant.TYPE_STRING
+
+    method is_table->Logical [macro]
+      return this.type == Variant.TYPE_TABLE
+
+    method is_undefined->Logical [macro]
+      return this.type == Variant.TYPE_UNDEFINED
+
+    method keys->String[]
+      if (type == TYPE_TABLE)
+        return (object as StringTable<<Variant>>).keys
+      else
+        return String[]
+      endIf
+
+    method last->Variant
+      if (count == 0) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST
+          return (object as Variant[]).last
+        case TYPE_TABLE
+          return (object as StringTable<<Variant>>).last_entry.value
+        others
+          return UndefinedVariant
+      endWhich
+
+    method last( query:(Function(Variant)->Logical) )->Variant
+      if (count == 0) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST
+          forEach (value in (object as Variant[]) step -1)
+            if (query(value)) return value
+          endForEach
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).last_entry
+          while (cur)
+            if (query(cur.value)) return cur.value
+            cur = cur.previous_entry
+          endWhile
+        case TYPE_CUSTOM
+          return (object as CustomVariant).last( query )
+        others
+      endWhich
+
+      return UndefinedVariant
+
+    method locate( value:Variant, starting_index=0:Int32 )->Variant [preferred]
+      which (type)
+        case TYPE_LIST
+          forEach (v at index in (object as Variant[]) from starting_index)
+            if (v == value) return index
+          endForEach
+
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur and starting_index > 0)
+            --starting_index
+            cur = cur.next_entry
+          endWhile
+
+          while (cur)
+            if (cur.value == value) return cur.key
+            cur = cur.next_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).locate( value, starting_index )
+      endWhich
+
+      return UndefinedVariant
+
+    method locate( query:(Function(Variant)->Logical), starting_index=0:Int32 )->Variant
+      which (type)
+        case TYPE_LIST
+          forEach (v at index in (object as Variant[]) from starting_index)
+            if (query(v)) return index
+          endForEach
+
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur and starting_index > 0)
+            --starting_index
+            cur = cur.next_entry
+          endWhile
+
+          while (cur)
+            if (query(cur.value)) return cur.key
+            cur = cur.next_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).locate( query, starting_index )
+      endWhich
+
+      return UndefinedVariant
+
+    method locate_last( value:Variant, starting_index=null:Int32? )->Variant [preferred]
+      if (not starting_index.exists) starting_index = count - 1
+      if (starting_index.value >= count) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST
+          forEach (v at index in (object as Variant[]) from starting_index.value step -1)
+            if (v == value) return index
+          endForEach
+
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).last_entry
+          local skip = (count-1) - starting_index.value
+          while (cur and skip > 0)
+            --starting_index.value
+            cur = cur.previous_entry
+          endWhile
+
+          while (cur)
+            if (cur.value == value) return cur.key
+            cur = cur.previous_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).locate_last( value, starting_index.value )
+      endWhich
+
+      return UndefinedVariant
+
+    method locate_last( query:(Function(Variant)->Logical), starting_index=null:Int32? )->Variant
+      if (not starting_index.exists) starting_index = count - 1
+      if (starting_index.value >= count) return UndefinedVariant
+
+      which (type)
+        case TYPE_LIST
+          forEach (v at index in (object as Variant[]) from starting_index.value step -1)
+            if (query(v)) return index
+          endForEach
+
+        case TYPE_TABLE
+          local cur = (object as StringTable<<Variant>>).last_entry
+          local skip = (count-1) - starting_index.value
+          while (cur and skip > 0)
+            --starting_index.value
+            cur = cur.previous_entry
+          endWhile
+
+          while (cur)
+            if (query(cur.value)) return cur.key
+            cur = cur.previous_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).locate_last( query, starting_index.value )
+      endWhich
+
+      return UndefinedVariant
+
+    method object_id->Int64
+      if (object) return object.object_id
+      return value
+
+    method operator==( other:Variant )->Logical
+      if (type <= LAST_ATOMIC_VALUE_TYPE and other.type <= LAST_ATOMIC_VALUE_TYPE)
+        if (type <= TYPE_NULL and other.type <= TYPE_NULL)
+          return true
+        else
+          if (is_real64 or other.is_real64)
+            return this->Real64 == other->Real64
+          else
+            return this.value == other.value
+          endIf
+        endIf
+      elseIf (type == TYPE_XY)
+        return (x == other.x and y == other.y)
+      elseIf (type == TYPE_BOX)
+        return (x == other.x and y == other.y and z == other.z and value.real_bits == other.value.real_bits)
+      elseIf (type > FIRST_OBJECT_TYPE)
+        if (type == TYPE_CUSTOM)
+          return 0 == (object as CustomVariant).compare( this, other )
+        elseIf (other.type == TYPE_CUSTOM)
+          return 0 == (other.object as CustomVariant).compare( this, other )
+        elseIf (type != other.type)
+          return false
+        else
+          if (object is other.object) return true
+
+          which (type)
+            case TYPE_OBJECT
+              return object == other.object
+            case TYPE_STRING
+              return (object as String) == (other.object as String)
+            case TYPE_LIST
+              return (object as Variant[]) == (other.object as Variant[])
+            case TYPE_TABLE
+              return (object as StringTable<<Variant>>) == (other.object as StringTable<<Variant>>)
+            others
+              return false
+          endWhich
+        endIf
+      else
+        return false
+      endIf
+
+    method operator==( other:Byte )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Character )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Int32 )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Int64 )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Logical )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Real64 )->Logical
+      return this == Variant( other )
+
+    method operator==( other:Object )->Logical
+      return this == Variant( other )
+
+    method operator==( other:String )->Logical
+      return this == Variant( other )
+
+    method operator<( other:Variant )->Logical
+      if (type <= LAST_ATOMIC_VALUE_TYPE and other.type <= LAST_ATOMIC_VALUE_TYPE)
+        if (type <= TYPE_NULL and other.type <= TYPE_NULL)
+          return false
+        else
+          if (is_real64 or other.is_real64)
+            return this->Real64 < other->Real64
+          else
+            return this.value < other.value
+          endIf
+        endIf
+      elseIf (type > FIRST_OBJECT_TYPE)
+        if (type == TYPE_CUSTOM)
+          return (object as CustomVariant).compare( this, other ) < 0
+        elseIf (other.type == TYPE_CUSTOM)
+          return (other.object as CustomVariant).compare( this, other ) < 0
+        elseIf (type != other.type)
+          return false
+        else
+          if (object is other.object) return false
+
+          which (type)
+            case TYPE_OBJECT
+              return object_id < other.object_id
+            case TYPE_STRING
+              return (object as String) < (other.object as String)
+            others
+              return false
+          endWhich
+        endIf
+      else
+        return false
+      endIf
+
+    method operator<( other:Byte )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Character )->Logical
+      return this < Variant( ""+other )
+
+    method operator<( other:Int32 )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Int64 )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Logical )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Real64 )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Real32 )->Logical
+      return this < Variant( other )
+
+    method operator<( other:Object )->Logical
+      return this < Variant( other )
+
+    method operator<( other:String )->Logical
+      return this < Variant( other )
+
+    method operator-()->Variant
+      which (type)
+        case TYPE_BYTE, TYPE_CHARACTER, TYPE_INT32, TYPE_INT64
+                          return -value
+        case TYPE_REAL64: return -x
+        case TYPE_XY:     return XY(-x,-y)
+        case TYPE_CUSTOM: return -(object as CustomVariant)
+        others:           return UndefinedVariant
+      endWhich
+
+    method operator+( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) + (other.object as CustomVariant)
+      endIf
+
+      if (type == TYPE_STRING or other.type == TYPE_STRING)
+        return Variant( this->String + other->String )
+      endIf
+
+      if (type == TYPE_BOX and other.type == TYPE_XY)
+        local this_box = this->Box
+        return Box( this_box.position + other->XY, this_box.size )
+      endIf
+
+      if (type == TYPE_XY and other.type == TYPE_BOX)
+        local other_box = this->Box
+        return Box( other_box.position + this->XY, other_box.size )
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY:        return this->XY + other->XY
+        case TYPE_REAL64:    return Variant( this->Real64 + other->Real64 )
+        case TYPE_INT64:     return Variant( this->Int64 + other->Int64 )
+        case TYPE_INT32:     return Variant( this->Int32 + other->Int32 )
+        case TYPE_CHARACTER: return Variant( this->Int32 + other->Int32 )
+        case TYPE_BYTE:      return Variant( this->Int32 + other->Int32 )
+        case TYPE_LOGICAL:   return Variant( this->Logical or other->Logical )
+        others:              return UndefinedVariant
+      endWhich
+
+    method operator-( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) - (other.object as CustomVariant)
+      endIf
+
+      if (type == TYPE_BOX and other.type == TYPE_XY)
+        local this_box = this->Box
+        return Box( this_box.position - other->XY, this_box.size )
+      endIf
+
+      if (type == TYPE_XY and other.type == TYPE_BOX)
+        local other_box = this->Box
+        return Box( other_box.position - this->XY, other_box.size )
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY:        return this->XY + other->XY
+        case TYPE_REAL64:    return Variant( this->Real64 - other->Real64 )
+        case TYPE_INT64:     return Variant( this->Int64  - other->Int64 )
+        case TYPE_INT32:     return Variant( this->Int32  - other->Int32 )
+        case TYPE_CHARACTER: return Variant( this->Int32  - other->Int32 )
+        case TYPE_BYTE:      return Variant( this->Int32  - other->Int32 )
+        others:              return UndefinedVariant
+      endWhich
+
+    method operator*( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) * (other.object as CustomVariant)
+      endIf
+
+      if (type == TYPE_STRING or other.type == TYPE_STRING)
+        if (this.is_number or other.is_number)
+          if (type == TYPE_STRING) return Variant( this->String * other->Int32 )
+          else                     return Variant( other->String * this->Int32 )
+        endIf
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY:        return this->XY * other->XY
+        case TYPE_REAL64:    return Variant( this->Real64 * other->Real64 )
+        case TYPE_INT64:     return Variant( this->Int64  * other->Int64 )
+        case TYPE_INT32:     return Variant( this->Int32  * other->Int32 )
+        case TYPE_CHARACTER: return Variant( this->Int32  * other->Int32 )
+        case TYPE_BYTE:      return Variant( this->Int32  * other->Int32 )
+        case TYPE_LOGICAL:   return Variant( this->Logical and other->Logical )
+        others:              return UndefinedVariant
+      endWhich
+
+    method operator/( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) / (other.object as CustomVariant)
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY
+          return this->XY / other->XY
+        case TYPE_REAL64, TYPE_INT64, TYPE_INT32, TYPE_CHARACTER, TYPE_BYTE:
+          return Variant( this->Real64 / other->Real64 )
+        others
+          return UndefinedVariant
+      endWhich
+
+    method operator%( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) % (other.object as CustomVariant)
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY:        return this->XY % other->XY
+        case TYPE_REAL64:    return Variant( this->Real64 % other->Real64 )
+        case TYPE_INT64:     return Variant( this->Int64  % other->Int64 )
+        case TYPE_INT32:     return Variant( this->Int32  % other->Int32 )
+        case TYPE_CHARACTER: return Variant( this->Int32  % other->Int32 )
+        case TYPE_BYTE:      return Variant( this->Int32  % other->Int32 )
+        others:              return UndefinedVariant
+      endWhich
+
+    method operator^( other:Variant )->Variant
+      if (type == TYPE_CUSTOM and other.type == TYPE_CUSTOM)
+        return (object as CustomVariant) ^ (other.object as CustomVariant)
+      endIf
+
+      which (type.or_larger(other.type))
+        case TYPE_XY:        return this->XY ^ other->XY
+        case TYPE_REAL64:    return Variant( this->Real64 ^ other->Real64 )
+        case TYPE_INT64:     return Variant( this->Int64  ^ other->Int64 )
+        case TYPE_INT32:     return Variant( this->Int32  ^ other->Int32 )
+        case TYPE_CHARACTER: return Variant( this->Int32  ^ other->Int32 )
+        case TYPE_BYTE:      return Variant( this->Int32  ^ other->Int32 )
+        others:              return UndefinedVariant
+      endWhich
+
+    method operator+( other:Real64 )->Variant
+      return this + Variant(other)
+
+    method operator-( other:Real64 )->Variant
+      return this - Variant(other)
+
+    method operator*( other:Real64 )->Variant
+      return this * Variant(other)
+
+    method operator/( other:Real64 )->Variant
+      return this / Variant(other)
+
+    method operator%( other:Real64 )->Variant
+      return this % Variant(other)
+
+    method operator^( other:Real64 )->Variant
+      return this ^ Variant(other)
+
+    method operator+( other:String )->Variant
+      return this + Variant(other)
+
+    method operator*( other:String )->Variant
+      return this * Variant(other)
+
+    method remove( value:Variant )->Variant
+      which (type)
+        case TYPE_LIST
+          (object as Variant[]).remove( value )
+          return value
+
+        case TYPE_TABLE
+          local result = (object as StringTable<<Variant>>).remove( value->String )
+          if (result) return result
+          else        return UndefinedVariant
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).remove( value )
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method remove( key:String )->Variant
+      return remove( Variant(key) )
+
+    method remove( query:(Function(Variant)->Logical) )->Variant
+      which (type)
+        case TYPE_LIST
+          local result = Variant.list
+          forEach (value in rewriter=(object as Variant[]).rewriter)
+            if (query(value)) result.add( value )
+            else              rewriter.write( value )
+          endForEach
+          return result
+
+        case TYPE_TABLE
+          local result = Variant.list
+          local table = (object as StringTable<<Variant>>)
+          local cur = table.first_entry
+          while (cur)
+            local next_entry = cur.next_entry
+            if (query(cur.value))
+              result.add( cur.value )
+              table.remove( cur )
+            endIf
+            cur = next_entry
+          endWhile
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).remove( query )
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method remove_at( index:Int32 )->Variant
+      if (index < 0 or index >= count) return UndefinedVariant
+      which (type)
+        case TYPE_LIST
+          return (object as Variant[]).remove_at( index )
+
+        case TYPE_TABLE
+          local table = (object as StringTable<<Variant>>)
+          local cur = table.first_entry
+          loop (index-1) cur = cur.next_entry
+          table.remove( cur )
+          return cur.value
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant).remove_at( index )
+
+        others
+          return UndefinedVariant
+      endWhich
+
+    method remove_first->Variant
+      return remove_at( 0 )
+
+    method remove_last->Variant
+      which (type)
+        case TYPE_LIST
+          return (object as Variant[]).remove_last
+
+        case TYPE_TABLE
+          local table = (object as StringTable<<Variant>>)
+          local cur = table.last_entry
+          table.remove( cur )
+          return cur.value
+
+        others
+          return remove_at( count-1 )
+      endWhich
+
+    method reserve( additional_elements:Int32 )
+      which (type)
+        case TYPE_LIST:   (object as Variant[]).reserve( additional_elements )
+        case TYPE_CUSTOM: (object as CustomVariant).reserve( additional_elements )
+      endWhich
+
+    method rest( result_list=Variant.list:Variant )->Variant
+      # Returns the "rest" of this collection: a Variant list containing all of the items
+      # in this collection after the first item.  The `result_list` parameter is
+      # used if it's specified (a Variant list is expected); otherwise a new Variant list
+      # is created and returned.
+      #
+      # If this `Variant` is not a collection or if it is empty then an empty list is
+      # returned.
+      if (type != TYPE_LIST) return result_list
+
+      result_list.reserve( (count-1).clamped_low(0) )
+
+      forEach (value in (object as Variant[]) from 1)
+        result_list.add( value )
+      endForEach
+
+      return result_list
+
+    method save( file:File, &formatted, &omit_commas )->Logical
+      return file.save( to_json(formatted,omit_commas) )
+
+    method set( index:Int32, value:Int32 ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:Int64 ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:Logical ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:Real64 ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:Object ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:String ) [macro]
+      this.set( index, Variant(value) )
+
+    method set( index:Int32, value:Variant ) [preferred]
+      if (index < 0) return
+
+      which (type)
+        case TYPE_LIST
+          local list = (object as Variant[])
+          while (index >= list.count) add( UndefinedVariant )
+          list[ index ] = value
+        case TYPE_TABLE
+          set( index->String, value )
+        case TYPE_CUSTOM
+          (object as CustomVariant).set( index, value )
+      endWhich
+
+    method set( key:String, value:Int32 ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:String, value:Int64 ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:String, value:Logical ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:String, value:Real64 ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:String, value:Object ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:String, value:String ) [macro]
+      this.set( key, Variant(value) )
+
+    method set( key:Variant, value:Variant ) [macro]
+      this.set( key->String, value )
+
+    method set( key:String, value:Variant ) [preferred]
+      which (type)
+        case TYPE_LIST
+          set( key->Int32, value )
+        case TYPE_TABLE
+          (object as StringTable<<Variant>>)[ key ] = value
+        case TYPE_CUSTOM
+          (object as CustomVariant).set( key, value )
+      endWhich
+
+    method sort( compare_fn:(Function(a:Variant,b:Variant)->Logical) )
+      which (type)
+        case TYPE_LIST
+          (object as Variant[]).sort( compare_fn )
+        case TYPE_TABLE
+          (object as StringTable<<Variant>>).sort( function(a,b) with(compare_fn) => compare_fn(a.value,b.value) )
+      endWhich
+
+    method sorted( compare_fn:(Function(a:Variant,b:Variant)->Logical) )->Variant
+      return this.cloned.[ sort(compare_fn) ]
+
+    method to->Byte
+      if (type == TYPE_REAL64)    return x->Byte
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value->Byte
+      if (type == TYPE_CUSTOM)    return (object as CustomVariant)->Byte
+      return 0
+
+    method to->Character
+      if (type == TYPE_REAL64)    return x->Character
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value->Character
+      if (type == TYPE_CUSTOM)    return (object as CustomVariant)->Character
+      return 0
+
+    method to->Int32
+      if (type == TYPE_REAL64)    return x->Int32
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value->Int32
+      if (type == TYPE_CUSTOM)    return (object as CustomVariant)->Int32
+      return 0
+
+    method to->Int64
+      if (type == TYPE_REAL64)    return x->Int64
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value
+      if (type == TYPE_CUSTOM)    return (object as CustomVariant)->Int64
+      return 0
+
+    method to->Logical
+      if (type == TYPE_REAL64)    return x?
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value?
+      which (type)
+        case TYPE_CUSTOM: return (object as CustomVariant)->Logical
+        others
+          return true
+      endWhich
+
+    method to->Real32
+      return this->Real64->Real32
+
+    method to->Real64
+      if (type == TYPE_REAL64)    return x
+      if (type < LAST_ATOMIC_VALUE_TYPE) return value->Real64
+      if (type == TYPE_CUSTOM)    return (object as CustomVariant)->Real64
+      return 0.0
+
+    method to->Object
+      which (type)
+        case TYPE_OBJECT, TYPE_STRING
+          return object
+
+        case TYPE_CUSTOM
+          return (object as CustomVariant)->Object
+
+        others
+          return null
+      endWhich
+
+    method to->XY
+      if (type == TYPE_REAL64) return XY( x, x )
+      if (type < LAST_ATOMIC_VALUE_TYPE) return XY( value, value )
+      which (type)
+        case TYPE_XY, TYPE_BOX
+          return XY( x, y )
+        case TYPE_CUSTOM
+          return (object as CustomVariant)->XY
+        others
+          return XY(0,0)
+      endWhich
+
+    method to->Box
+      if (type == TYPE_REAL64) return Box( 0, 0, x, x )
+      if (type < LAST_ATOMIC_VALUE_TYPE) return Box( 0, 0, value, value )
+      which (type)
+        case TYPE_XY
+          return Box( 0, 0, XY(x,y) )
+        case TYPE_BOX
+          return Box( this->XY, value.real_bits, z )
+        case TYPE_CUSTOM
+          return (object as CustomVariant)->Box
+        others
+          return Box(0,0,0,0)
+      endWhich
+
+
+    method to->String
+      which (type)
+        case TYPE_UNDEFINED: return "undefined"
+        case TYPE_NULL:      return "null"
+        case TYPE_LOGICAL:   return value->Logical
+        case TYPE_BYTE:      return value->Byte
+        case TYPE_CHARACTER: return value->Character
+        case TYPE_INT32:     return value->Int32
+        case TYPE_REAL64:    return _real64_to_string(x)
+        case TYPE_INT64:     return value->String
+        case TYPE_XY:        return this->XY->String
+        case TYPE_BOX:       return this->Box->String
+        case TYPE_OBJECT:    return object->String
+        case TYPE_STRING:    return object->String
+        case TYPE_LIST:      return (object as Variant[])->String
+        case TYPE_TABLE:     return (object as StringTable<<Variant>>)->String
+        case TYPE_CUSTOM:    return (object as CustomVariant)->String
+        others:              throw UnsupportedOperationError()
+      endWhich
+
+    method to->Variant
+      return this
+
+    method to<<$AsType>>()->$AsType [macro]
+      return (this->Object as $AsType)
+
+    method to_json( &formatted, &omit_commas )->String
+      return to_json( StringBuilder(), formatted, omit_commas )->String
+
+    method to_json( buffer:StringBuilder, &formatted, &omit_commas )->StringBuilder
+      local flags = 0
+      if (formatted)   flags |= FORMATTED
+      if (omit_commas) flags |= FORMATTED | OMIT_COMMAS
+      return to_json( buffer, flags )
+
+    method to_json( buffer:StringBuilder, flags=0:Int32 )->StringBuilder
+      which (type)
+        case TYPE_NULL
+          return buffer.print( "null" )
+        case TYPE_LOGICAL
+          return buffer.print( value? )
+        case TYPE_CHARACTER
+          return buffer.print( value->Character )
+        case TYPE_BYTE, TYPE_INT32, TYPE_INT64
+          return buffer.print( value )
+        case TYPE_REAL64
+          local real = this->Real64
+          if (real.fractional_part) buffer.print( real )
+          else                      buffer.print( real, 0 )  # omit the ".0"
+          return buffer
+        case TYPE_OBJECT, TYPE_STRING
+          return to_json( this->String, buffer, flags )
+        case TYPE_LIST
+          local pretty_print = ((flags & FORMATTED) and (is_complex or (flags & OMIT_COMMAS)))
+
+          buffer.print( '[' )
+
+          if (pretty_print)
+            buffer.println
+            buffer.indent += 2
+          endIf
+
+          local first = true
+          forEach (value in (object as Variant[]))
+            if (first)
+              first = false
+            else
+              if (not (flags & OMIT_COMMAS)) buffer.print( ',' )
+              if (pretty_print) buffer.println
+            endIf
+
+            if (value.exists) value.to_json( buffer, flags )
+            else              buffer.print( "null" )
+          endForEach
+
+          if (pretty_print)
+            buffer.println
+            buffer.indent -= 2
+          endIf
+
+          buffer.print( ']' )
+          return buffer
+        case TYPE_TABLE
+          local pretty_print = ((flags & FORMATTED) and (is_complex or (flags & OMIT_COMMAS)))
+
+          buffer.print( '{' )
+
+          if (pretty_print)
+            buffer.println
+            buffer.indent += 2
+          endIf
+
+          local first = true
+          local cur = (object as StringTable<<Variant>>).first_entry
+          while (cur)
+            if (first)
+              first = false
+            else
+              if (not (flags & OMIT_COMMAS)) buffer.print( ',' )
+              if (pretty_print) buffer.println
+            endIf
+
+            to_json( cur.key, buffer, flags )
+            buffer.print( ':' )
+
+            local indent = false
+            if (pretty_print and (cur.value.is_complex or (flags & OMIT_COMMAS)))
+              buffer.println
+              indent = not cur.value.is_collection
+              if (indent) buffer.indent += 2
+            endIf
+
+            if (cur.value.exists) cur.value.to_json( buffer, flags )
+            else                  buffer.print( "null" )
+
+            if (indent) buffer.indent -= 2
+
+            cur = cur.next_entry
+          endWhile
+
+          if (pretty_print) buffer.println; buffer.indent -= 2
+
+          buffer.print( '}' )
+          return buffer
+        case TYPE_CUSTOM
+          return (object as CustomVariant).to_json( buffer, flags )
+        others
+          return buffer.print( '"undefined"' )
+      endWhich
+
+    method values( list=UndefinedVariant:Variant )->Variant
+      if (list.is_list)
+        list.add_all( this )
+        return list
+      else
+        which (type)
+          case TYPE_LIST
+            return this
+
+          case TYPE_TABLE
+            local result = Variant.list.[ reserve(count) ]
+            local cur = (object as StringTable<<Variant>>).first_entry
+            while (cur)
+              result.add( cur.value )
+              cur = cur.next_entry
+            endWhile
+            return result
+
+          case TYPE_CUSTOM
+            return (object as CustomVariant).values
+
+          others
+            return UndefinedVariant
+        endWhich
+      endIf
+
+$if defined(SCRIPT_HELPERS)
+    method _get_element( index:Int32 )->Variant [essential]
+      return this[ index ]
+$endIf
+  GLOBAL METHODS
+    method _real64_to_string( value:Real64 )->String
+      if (value.floor == value) return value.format(".0")
+      else                      return value->String
+
+    method to_json( value:String, buffer:StringBuilder, flags=0:Int32 )->StringBuilder
+      if (value)
+        buffer.print '"'
+        forEach (ch in value)
+          which (ch)
+            case '"':
+              buffer.print( "\\\"" )
+            case '\\':
+              buffer.print( "\\\\" )
+            case '\b':
+              buffer.print( "\\b" )
+            case '\f':
+              buffer.print( "\\f" )
+            case '\n':
+              buffer.print( "\\n" )
+            case '\r':
+              buffer.print( "\\r" )
+            case '\t':
+              buffer.print( "\\t" )
+            others
+              if (ch >= 32 and ch <= 126)
+                buffer.print( ch )
+              elseIf (ch < 32 or ch == 127 or ch == 0x2028 or ch == 0x2029)
+                # RE: 2028/9:
+                # http://stackoverflow.com/questions/2965293/javascript-parse-error-on-u2028-unicode-character
+                buffer.print( "\\u" )
+                local n = ch : Int32
+                forEach (nibble in 0..3)
+                  local digit = (n :>>>: 12) & 15
+                  n = n:<<:4
+                  if (digit <= 9)
+                    buffer.print( digit )
+                  else
+                    buffer.print( ('a' + (digit - 10))->Character )
+                  endIf
+                endForEach
+              else
+                # Store printable Unicode without encoding as \\uXXXX
+                buffer.print( ch )
+              endIf
+          endWhich
+        endForEach
+        buffer.print '"'
+      else
+        buffer.print "null"
+      endIf
+      return buffer
+endClass
+
+routine UndefinedVariant->Variant
+  return Variant( Variant.TYPE_UNDEFINED, 0 )
+endRoutine
+
+routine NullVariant->Variant
+  return Variant( Variant.TYPE_NULL, 0 )
+endRoutine
+
+class CustomVariant
+  # Defines API for custom Variant objects
+  METHODS
+    method add( other:Variant )
+
+    method add_all( other:Variant )
+
+    method apply( fn:Function(Variant)->Variant )
+
+    method clear
+
+    method cloned->CustomVariant
+      # Returning 'null' will result in Variant.cloned() returning UndefinedVariant
+      return this
+
+    method compare( left:Variant, right:Variant )->Int32
+      return right.object_id - left.object_id
+
+    method contains( value:Variant )->Logical
+      return false
+
+    method count->Int32
+      return 0
+
+    method count( query:(Function(Variant)->Logical) )->Int32
+      return 0
+
+    method first->Variant
+      return UndefinedVariant
+
+    method first( query:(Function(Variant)->Logical) )->Variant
+      return UndefinedVariant
+
+    method get( index:Int32 )->Variant
+      return UndefinedVariant
+
+    method get( key:String )->Variant
+      return UndefinedVariant
+
+    method get( query:(Function(Variant)->Logical) )->Variant
+      return UndefinedVariant
+
+    method insert( value:Variant, before_index:Int32 )
+
+    method insert_all( other:Variant, before_index:Int32 )
+
+    method is_collection->Logical
+      return false
+
+    method keys->String[]
+      return String[]
+
+    method last->Variant
+      return UndefinedVariant
+
+    method last( query:(Function(Variant)->Logical) )->Variant
+      return UndefinedVariant
+
+    method locate( value:Variant, starting_index=0:Int32 )->Variant
+      return UndefinedVariant
+
+    method locate( query:(Function(Variant)->Logical), starting_index=0:Int32 )->Variant
+      return UndefinedVariant
+
+    method locate_last( value:Variant, starting_index=null:Int32 )->Variant
+      return UndefinedVariant
+
+    method locate_last( query:(Function(Variant)->Logical), starting_index:Int32? )->Variant
+      return UndefinedVariant
+
+    method operator-()->Variant
+      return UndefinedVariant
+
+    method operator+( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method operator-( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method operator*( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method operator/( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method operator%( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method operator^( other:CustomVariant )->Variant
+      return UndefinedVariant
+
+    method remove( value:Variant )->Variant
+      return UndefinedVariant
+
+    method remove( query:(Function(Variant)->Logical) )->Variant
+      return UndefinedVariant
+
+    method remove_at( index:Int32 )->Variant
+      return UndefinedVariant
+
+    method reserve( additional_elements:Int32 )
+
+    method set( index:Int32, value:Variant )
+
+    method set( key:String, value:Variant )
+
+    method to->Box
+      return Box(0,0,0,0)
+
+    method to->Byte
+      return 0
+
+    method to->Character
+      return 0
+
+    method to->Int32
+      return 0
+
+    method to->Int64
+      return 0
+
+    method to->Logical
+      return false
+
+    method to->Object
+      return null
+
+    method to->Real64
+      return 0.0
+
+    method to->String
+      return type_name
+
+    method to->XY
+      return XY(0,0)
+
+    method to_json( buffer:StringBuilder, flags=0:Int32 )->StringBuilder
+      return buffer.print( '"undefined"' )
+
+    method values->Variant
+      return UndefinedVariant
+endClass
+
+class VariantJSON
+  GLOBAL METHODS
+    method load( file:File )->Variant
+      if (not file or not file.exists) return UndefinedVariant
+      return parse( file.load_as_string )
+
+    method load_list( file:File )->Variant
+      if (not file or not file.exists) return Variant.list
+      return parse_list( file.load_as_string )
+
+    method load_table( file:File )->Variant
+      if (not file or not file.exists) return Variant.table
+      return parse_table( file.load_as_string )
+
+    method parse( json:String )->Variant
+      try
+        return VariantJSONParser( json ).parse_value
+      catch (VariantJSONParseError)
+        return UndefinedVariant
+      endTry
+
+    method parse_list( json:String )->Variant
+      local list = parse(json)
+      if (list and list.is_list) return list
+      return Variant.list
+
+    method parse_table( json:String )->Variant
+      local table = parse(json)
+      if (table and table.is_table) return table
+      return Variant.table
+
+    method save( value:Variant, file:File, &formatted, &omit_commas )->Logical
+      return value.save( file, formatted, omit_commas  )
+
+endClass
+
+class VariantJSONParseError( message ) : Error;
+
+class VariantJSONParser
+  PROPERTIES
+    reader : Scanner
+
+  METHODS
+    method init( json:String )
+      reader = Scanner( json )
+
+    method init( reader )
+
+    method consume( ch:Character )->Logical
+      return reader.consume( ch )
+
+    method has_another->Logical
+      return reader.has_another
+
+    method next_is( ch:Character )->Logical
+      return (reader.peek == ch)
+
+    method parse_value->Variant
+      consume_spaces_and_eols
+
+      if (not reader.has_another) return UndefinedVariant
+
+      local ch = reader.peek
+      if (ch == '{') return parse_table
+      if (ch == '[') return parse_list
+
+      if (ch == '-')               return parse_number
+      if (ch >= '0' and ch <= '9') return parse_number
+
+      if (ch == '"' or ch == '\'')
+        local result = parse_string
+        if (result.count == 0) return Variant.EMPTY_STRING
+
+        local first_ch = result[ 0 ]
+        if (first_ch == 't' and result == "true")  return Variant.TRUE
+        if (first_ch == 'f' and result == "false") return Variant.FALSE
+        if (first_ch == 'n' and result == "null")  return NullVariant
+
+        return Variant( result )
+
+      elseIf (next_is_identifier)
+        local result = parse_identifier
+        if (result.count == 0) return Variant.EMPTY_STRING
+
+        local first_ch = result[ 0 ]
+        if (first_ch == 't' and result == "true")  return Variant.TRUE
+        if (first_ch == 'f' and result == "false") return Variant.FALSE
+        if (first_ch == 'n' and result == "null")  return NullVariant
+
+        return Variant( result )
+      else
+        return UndefinedVariant
+      endIf
+
+    method parse_table( open_ch='{':Character, close_ch='}':Character )->Variant
+      consume_spaces_and_eols
+
+      if (not reader.consume(open_ch)) return UndefinedVariant
+
+      consume_spaces_and_eols
+
+      local table = Variant.table
+      if (reader.consume(close_ch)) return table
+
+      local prev_pos = reader.position
+      local first = true
+      while (first or reader.consume(',') or (reader.has_another and reader.peek!=close_ch and reader.position>prev_pos))
+        first = false
+        prev_pos = reader.position
+
+        consume_spaces_and_eols
+
+        if (next_is_identifier)
+          local key = parse_identifier
+          consume_spaces_and_eols
+
+          if (key.count)
+            if (reader.consume(':'))
+              consume_spaces_and_eols
+              local value = parse_value
+              table.set( key, value )
+            else
+              table.set( key, true )
+            endIf
+            consume_spaces_and_eols
+          endIf
+        endIf
+      endWhile
+
+      if (not reader.consume(close_ch)) throw VariantJSONParseError( "'$' expected."(close_ch) )
+
+      return table
+
+    method parse_list( open_ch='[':Character, close_ch=']':Character )->Variant
+      consume_spaces_and_eols
+
+      if (not reader.consume(open_ch)) return UndefinedVariant
+
+      consume_spaces_and_eols
+
+      local list = Variant.list
+      if (reader.consume(close_ch)) return list
+
+      local prev_pos = reader.position
+      local first = true
+      while (first or reader.consume(',') or (reader.has_another and reader.peek!=close_ch and reader.position>prev_pos))
+        first = false
+        prev_pos = reader.position
+        consume_spaces_and_eols
+        if (reader.peek == close_ch) escapeWhile
+        list.add( parse_value )
+        consume_spaces_and_eols
+      endWhile
+
+      if (not reader.consume(close_ch)) throw VariantJSONParseError( "'$' expected." (close_ch) )
+
+      return list
+
+    method parse_string->String
+      consume_spaces_and_eols
+
+      local terminator = '"'
+      if     (reader.consume( '"' ))  terminator = '"'
+      elseIf (reader.consume( '\'' )) terminator = '\''
+
+      if (not reader.has_another) return ""
+
+      use buffer = StringBuilder.pool
+        local ch = reader.read
+        while (reader.has_another and ch != terminator)
+          if (ch == '\\')
+            ch = reader.read
+            if (ch == 'b')     buffer.print( '\b' )
+            elseIf (ch == 'f') buffer.print( '\f' )
+            elseIf (ch == 'n') buffer.print( '\n' )
+            elseIf (ch == 'r') buffer.print( '\r' )
+            elseIf (ch == 't') buffer.print( '\t' )
+            elseIf (ch == 'u') buffer.print( parse_hex_quad )
+            else               buffer.print( ch )
+          else
+            buffer.print( ch )
+          endIf
+          ch = reader.read
+        endWhile
+
+        return buffer->String.consolidated
+      endUse
+
+    method parse_hex_quad->Character
+      local code = 0
+      forEach (i in 1..4)
+        if (reader.has_another)
+          code = (code :<<: 4) | reader.read.to_number(16)
+        endIf
+      endForEach
+      return code->Character
+
+    method parse_identifier->String
+      consume_spaces_and_eols
+
+      local ch = reader.peek
+      if (ch == '"' or ch == '\'')
+        return parse_string
+      else
+        use buffer = StringBuilder.pool
+          local finished = false
+          while (not finished and reader.has_another)
+            if (ch.is_identifier(&allow_dollar))
+              reader.read
+              buffer.print( ch->Character )
+              ch = reader.peek
+            else
+              finished = true
+            endIf
+          endWhile
+
+          if (buffer.count == 0) throw VariantJSONParseError( "Identifier expected." )
+          return buffer->String.consolidated
+        endUse
+      endIf
+
+    method peek->Character
+      return reader.peek
+
+    method next_is_identifier->Logical
+      local ch = reader.peek
+      if (ch.is_identifier(&start,&allow_dollar)) return true
+      return (ch == '"' or ch == '\'')
+
+    method parse_number->Variant
+      consume_spaces_and_eols
+
+      local sign = 1.0
+      if (reader.consume( '-' ))
+        sign = -1.0
+        consume_spaces_and_eols
+      endIf
+
+      local n = 0.0
+      local ch = reader.peek
+      while (reader.has_another and ch >= '0' and ch <= '9')
+        reader.read
+        n = n * 10 + (ch - '0')
+        ch = reader.peek
+      endWhile
+
+      if (reader.consume( '.' ))
+        local decimal = 0.0
+        local power = 0.0
+        ch = reader.peek
+        while (reader.has_another and ch >= '0' and ch <= '9')
+          reader.read
+          decimal = decimal * 10 + (ch - '0')
+          power += 1.0
+          ch = reader.peek
+        endWhile
+        n += decimal / (10.0 ^ power)
+      endIf
+
+      if (reader.consume( 'e' ) or reader.consume( 'E' ))
+        local negexp = false
+        if (not reader.consume('+') and reader.consume('-')) negexp = true
+
+        local power = 0.0
+        ch = reader.peek
+        while (reader.has_another and ch >= '0' and ch <= '9')
+          reader.read
+          power = power * 10.0 + (ch - '0')
+          ch = reader.peek
+        endWhile
+
+        if (negexp) n /= 10 ^ power
+        else        n *= 10 ^ power
+      endIf
+
+      n = n * sign
+
+      return Variant( n )
+
+    method read->Character
+      return reader.read
+
+    method consume_spaces
+      while (reader.consume_spaces) noAction
+
+    method consume_spaces_and_eols
+      while (reader.consume_spaces or reader.consume_eols) noAction
+
+endClass
+
