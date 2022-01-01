@@ -36,7 +36,7 @@ class WAV
       return "$ channel $-bit $ $ Hz" (channels.count,bit_depth,format,sample_rate)
 
     method save( file:File )->Logical
-      WAVEncoder.encode( this )
+      file.save( WAVEncoder.encode(this) )
       return true
 endClass
 
@@ -53,7 +53,7 @@ class WAVDecoder [singleton]
       reader.read_int32_low_high                             # chunk size
       if (not reader.read_int32 == 0x57415645) return false  # "WAVE"
       if (not reader.read_int32 == 0x666D7420) return false  # "fmt "
-      if (reader.read_int32_low_high != 16) return false     # subchunk 1 size (16=PCM)
+      if (reader.read_int32_low_high != 16) return false     # subchunk 1 size
 
       wav.format = WAVFormat( reader.read_int16_low_high )
       if (not wav.format.exists) return false
@@ -109,18 +109,42 @@ endClass
 
 class WAVEncoder [singleton]
   METHODS
-    method encode( wav:WAV )
+    method encode( wav:WAV )->Byte[]
       local writer = DataWriter()
-      writer.write_int32( 0x52494646 ) # "RIFF"
-      trace encoded_size(wav)
-      #writer.write_int32_low_high( encoded_size(wav) - 8 )
-      #if (not reader.read_int32 == 0x57415645) return false  # "WAVE"
-      #if (not reader.read_int32 == 0x666D7420) return false  # "fmt "
-      #if (reader.read_int32_low_high != 16) return false     # subchunk 1 size (16=PCM)
+
+      writer.write_int32( 0x52494646 )  # "RIFF"
+      writer.write_int32_low_high( encoded_size(wav) - 8 )
+      writer.write_int32( 0x57415645 )  # "WAVE"
+      writer.write_int32( 0x666D7420 )  # "fmt "
+
+      writer.write_int32_low_high( 16 )                 # subchunk 1 size
+      writer.write_int16_low_high( wav.format->Int32 )  # format
+
+      writer.write_int16_low_high( wav.channels.count ) # channel count
+      writer.write_int32_low_high( wav.sample_rate )    # sample rate
+
+      writer.write_int32_low_high( wav.sample_rate * (wav.bit_depth/8) * wav.channels.count )
+      writer.write_int16_low_high( (wav.bit_depth/8) * wav.channels.count )
+      writer.write_int16_low_high( wav.bit_depth )
+
+      #writer.write_int32( 0x464C4C52 )    # "FLLR"
+      #writer.write_int32_low_high( 4044 )
+      #loop (4044) writer.write(0)
+
+      writer.write_int32( 0x64617461 )  # "data"
+      local sample_count = which{ wav.channels.count:wav.channels.first.count || 0 }
+      writer.write_int32_low_high( sample_count * (wav.bit_depth/8) * wav.channels.count )  # chunk size
+      forEach (i in 0..<sample_count)
+        (forEach in wav.channels).write( i, writer )
+      endForEach
+
+      return writer.output_bytes
+
 
     method encoded_size( wav:WAV )->Int32
       local size = 36  # header
       size += 8        # "data" chunk header
+      #size += 4052     # FLLR
       if (wav.channels.count)
         size += wav.channels.count * (wav.bit_depth / 8) * wav.channels.first.count
       endIf
@@ -175,6 +199,9 @@ class WAVChannel
 
     method reserve( n:Int32 )
       noAction
+
+    method write( index:Int32, writer:DataWriter )
+      throw UnsupportedOperationError()
 endClass
 
 class WAVChannelPCM : WAVChannel
@@ -228,6 +255,18 @@ class WAVChannelPCM : WAVChannel
 
     method reserve( n:Int32 )
       samples.reserve( n )
+
+    method write( index:Int32, writer:DataWriter )
+      which (bit_depth)
+        case 16
+          writer.write_int16_low_high( samples[index] :>>>: 16 )
+        case 24
+          local sample = samples[index] :>>>: 8
+          writer.write_int16_low_high( sample )
+          writer.write( sample:>>>:16 )
+        others
+          writer.write_int32_low_high( samples[index] )
+      endWhich
 endClass
 
 class WAVChannelIEEEFloat : WAVChannel
@@ -265,5 +304,8 @@ class WAVChannelIEEEFloat : WAVChannel
 
     method reserve( n:Int32 )
       samples.reserve( n )
+
+    method write( index:Int32, writer:DataWriter )
+      writer.write_int32_low_high( samples[index]->Real32.integer_bits )
 endClass
 
