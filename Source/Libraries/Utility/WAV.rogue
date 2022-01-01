@@ -11,26 +11,7 @@ class WAV
         throw Error( "Error decoding WAV file: $"(file.filepath) )
       endIf
 
-      #{
-      println this
-      local low = channels.first[0]
-      local high = low
-      forEach (sample in channels.first)
-        low .= or_smaller(sample)
-        high .= or_larger(sample)
-      endForEach
-      trace low, high
-      if (high < 1) trace high * 32767, (high * (Int64(0x0_7FFF_FFFF)+1))->Int32
-      }#
-
     method init( format, bit_depth, sample_rate )
-
-    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAV
-      if (new_format == format and new_bit_depth == bit_depth) return this
-
-      local result = WAV( new_format, new_bit_depth, sample_rate )
-      result.channels.add( (forEach in channels).converted(new_format,new_bit_depth) )
-      return result
 
     method description->String
       return "$ channel $-bit $ $ Hz" (channels.count,bit_depth,format,sample_rate)
@@ -164,76 +145,20 @@ enum WAVFormat
 endEnum
 
 class WAVChannel
-  GLOBAL METHODS
-    method create( format:WAVFormat, bit_depth:Int32 )->WAVChannel
-      which (format)
-        case PCM
-          return WAVChannelPCM(format,bit_depth)
-
-        case IEEE_FLOAT
-          return WAVChannelIEEEFloat(format,bit_depth)
-
-        others
-          throw Error( "WAVDecoder cannot handle format $."(format) )
-      endWhich
-
   PROPERTIES
     format    : WAVFormat
     bit_depth : Int32
-
-  METHODS
-    method add( sample:Real64 )
-      throw UnsupportedOperationError()
-
-    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
-      throw UnsupportedOperationError()
-
-    method count->Int32
-      throw UnsupportedOperationError()
-
-    method get( index:Int32 )->Real64
-      throw UnsupportedOperationError()
-
-    method read( reader:DataReader )
-      throw UnsupportedOperationError()
-
-    method reserve( n:Int32 )
-      noAction
-
-    method write( index:Int32, writer:DataWriter )
-      throw UnsupportedOperationError()
-endClass
-
-class WAVChannelPCM : WAVChannel
-  PROPERTIES
-    samples = Int32[]
-    offset  : Int32
+    samples   = Real32[]
 
   METHODS
     method init( format, bit_depth )
-      which (bit_depth)
-        case 16: offset = 0x001_0000
-        case 24: offset = 0x100_0000
-        case 32: offset = 0
-        others
-          throw Error( "Unsupported PCM bit depth: $."(bit_depth) )
+      which (format)
+        case PCM, IEEE_FLOAT: noAction
+        others:               throw Error( "WAVDecoder cannot handle format $."(format) )
       endWhich
 
     method add( sample:Real64 )
-      samples.add( sample->Int32 )
-
-    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
-      if (new_format == format and new_bit_depth == bit_depth) return this
-
-      if (new_format == WAVFormat.IEEE_FLOAT)
-        local result = WAVChannelIEEEFloat(new_format,new_bit_depth)
-        local new_samples = result.samples
-        new_samples.reserve( count )
-        new_samples.add( (forEach in this.samples) / 2147483648.0 )
-        return result
-      else
-        throw UnsupportedOperationError( "[WAV] Cannot convert to $-bit format $."(new_bit_depth,new_format) )
-      endIf
+      samples.add( sample )
 
     method count->Int32
       return samples.count
@@ -242,70 +167,40 @@ class WAVChannelPCM : WAVChannel
       return samples[index]
 
     method read( reader:DataReader )
-      which (bit_depth)
-        case 16
-          samples.add( reader.read_int16_low_high :<<: 16 )
-        case 24
-          local sample = reader.read_int16_low_high
-          sample = (reader.read->Int32 :<<: 16) | sample
-          samples.add( sample :<<: 8 )
-        others
-          samples.add( reader.read_int32_low_high )
+      which (format)
+        case PCM
+          which (bit_depth)
+            case 16
+              samples.add( (reader.read_int16_low_high:<<:16) / 32768.0 )
+            case 24
+              local sample = reader.read_int16_low_high
+              sample = (reader.read->Int32 :<<: 16) | sample
+              samples.add( (sample:<<:8) / 8388608.0 )
+            others
+              samples.add( reader.read_int32_low_high / 2147483648.0 )
+          endWhich
+        case IEEE_FLOAT
+          samples.add( reader.read_int32_low_high.real_bits )
       endWhich
 
     method reserve( n:Int32 )
       samples.reserve( n )
 
     method write( index:Int32, writer:DataWriter )
-      which (bit_depth)
-        case 16
-          writer.write_int16_low_high( samples[index] :>>>: 16 )
-        case 24
-          local sample = samples[index] :>>>: 8
-          writer.write_int16_low_high( sample )
-          writer.write( sample:>>>:16 )
-        others
-          writer.write_int32_low_high( samples[index] )
+      which (format)
+        case PCM
+          which (bit_depth)
+            case 16
+              writer.write_int16_low_high( (samples[index] * 32768)->Int32 :>>>: 16 )
+            case 24
+              local sample = (samples[index] * 8388608)->Int32 :>>>: 8
+              writer.write_int16_low_high( sample )
+              writer.write( sample:>>>:16 )
+            others
+              writer.write_int32_low_high( samples[index] * 2147483648.0 )
+          endWhich
+        case IEEE_FLOAT
+          writer.write_int32_low_high( samples[index]->Real32.integer_bits )
       endWhich
-endClass
-
-class WAVChannelIEEEFloat : WAVChannel
-  PROPERTIES
-    samples = Real32[]
-
-  METHODS
-    method init( format, bit_depth )
-      require bit_depth == 32
-
-    method add( sample:Real64 )
-      samples.add( sample->Real32 )
-
-    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
-      if (new_format == format and new_bit_depth == bit_depth) return this
-
-      if (new_format == WAVFormat.PCM)
-        local result = WAVChannelPCM(new_format,new_bit_depth)
-        local new_samples = result.samples
-        new_samples.reserve( count )
-        new_samples.add( (forEach in this.samples) * 2147483648.0 )
-        return result
-      else
-        throw UnsupportedOperationError( "[WAV] Cannot convert to $-bit format $."(new_bit_depth,new_format) )
-      endIf
-
-    method count->Int32
-      return samples.count
-
-    method get( index:Int32 )->Real64
-      return samples[index]
-
-    method read( reader:DataReader )
-      samples.add( reader.read_int32_low_high.real_bits )
-
-    method reserve( n:Int32 )
-      samples.reserve( n )
-
-    method write( index:Int32, writer:DataWriter )
-      writer.write_int32_low_high( samples[index]->Real32.integer_bits )
 endClass
 
