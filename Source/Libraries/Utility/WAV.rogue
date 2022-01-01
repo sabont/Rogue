@@ -1,0 +1,269 @@
+class WAV
+  PROPERTIES
+    channels    = WAVChannel[](2)
+    format      : WAVFormat
+    bit_depth   : Int32
+    sample_rate : Int32
+
+  METHODS
+    method init( file:File )
+      if (not WAVDecoder.decode(DataReader(file),this))
+        throw Error( "Error decoding WAV file: $"(file.filepath) )
+      endIf
+
+      #{
+      println this
+      local low = channels.first[0]
+      local high = low
+      forEach (sample in channels.first)
+        low .= or_smaller(sample)
+        high .= or_larger(sample)
+      endForEach
+      trace low, high
+      if (high < 1) trace high * 32767, (high * (Int64(0x0_7FFF_FFFF)+1))->Int32
+      }#
+
+    method init( format, bit_depth, sample_rate )
+
+    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAV
+      if (new_format == format and new_bit_depth == bit_depth) return this
+
+      local result = WAV( new_format, new_bit_depth, sample_rate )
+      result.channels.add( (forEach in channels).converted(new_format,new_bit_depth) )
+      return result
+
+    method description->String
+      return "$ channel $-bit $ $ Hz" (channels.count,bit_depth,format,sample_rate)
+
+    method save( file:File )->Logical
+      WAVEncoder.encode( this )
+      return true
+endClass
+
+class WAVDecoder [singleton]
+  # http://www-mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
+  # http://tiny.systems/software/soundProgrammer/WavFormatDocs.pdf
+  PROPERTIES
+    reader : DataReader
+    wav    : WAV
+
+  METHODS
+    method decode( reader, wav )->Logical
+      if (not reader.read_int32 == 0x52494646) return false  # "RIFF"
+      reader.read_int32_low_high                             # chunk size
+      if (not reader.read_int32 == 0x57415645) return false  # "WAVE"
+      if (not reader.read_int32 == 0x666D7420) return false  # "fmt "
+      if (reader.read_int32_low_high != 16) return false     # subchunk 1 size (16=PCM)
+
+      wav.format = WAVFormat( reader.read_int16_low_high )
+      if (not wav.format.exists) return false
+
+      local channel_count = reader.read_int16_low_high
+
+      wav.sample_rate = reader.read_int32_low_high
+
+      reader.read_int32_low_high  # data rate
+      reader.read_int16_low_high  # block size in bytes
+
+      wav.bit_depth = reader.read_int16_low_high
+
+      loop channel_count
+        wav.channels.add( WAVChannel(wav.format,wav.bit_depth) )
+      endLoop
+
+      while (reader.has_another)
+        read_another_chunk
+      endWhile
+
+      return true
+
+    method read_another_chunk
+      local id = reader.read_int32
+      local size = reader.read_int32_low_high
+
+      which (id)
+        case 0x64617461   # "data"
+          local n = size / ((wav.bit_depth / 8) * wav.channels.count)
+          (forEach in wav.channels).reserve( n )
+          loop (n)
+            (forEach in wav.channels).read( reader )
+          endLoop
+
+        case 0x464C4C52   # "FLLR"
+          # A FLLR chunk aligns the read position to a multiple of 4096 minus 8
+          # so that the content of the data chunk is 4K page-aligned.
+          reader.skip( size )
+
+        others            # Unknown chunk type
+          #println "Unknown chunk type: $" (id_to_string(id))
+          reader.skip( size )
+      endWhich
+
+    method id_to_string( id:Int32 )->String
+      local a = (id:>>>:24)->Byte->Character
+      local b = (id:>>>:16)->Byte->Character
+      local c = (id:>>>:8)->Byte->Character
+      local d = id->Byte->Character
+      return "$$$$"(a,b,c,d)
+endClass
+
+class WAVEncoder [singleton]
+  METHODS
+    method encode( wav:WAV )
+      local writer = DataWriter()
+      writer.write_int32( 0x52494646 ) # "RIFF"
+      trace encoded_size(wav)
+      #writer.write_int32_low_high( encoded_size(wav) - 8 )
+      #if (not reader.read_int32 == 0x57415645) return false  # "WAVE"
+      #if (not reader.read_int32 == 0x666D7420) return false  # "fmt "
+      #if (reader.read_int32_low_high != 16) return false     # subchunk 1 size (16=PCM)
+
+    method encoded_size( wav:WAV )->Int32
+      local size = 36  # header
+      size += 8        # "data" chunk header
+      if (wav.channels.count)
+        size += wav.channels.count * (wav.bit_depth / 8) * wav.channels.first.count
+      endIf
+      return size
+endClass
+
+enum WAVFormat
+  PCM        = 0x0001
+  IEEE_FLOAT = 0x0003
+  ALAW       = 0x0006   # 8-bit ITU-T G.711 A-law
+  MULAW      = 0x0007   # 8-bit ITU-T G.711 µ-law
+  EXTENSIBLE = 0xFFFE   # Determined by SubFormat
+
+  METHODS
+    method exists->Logical
+      return categories.contains(this)
+endEnum
+
+class WAVChannel
+  GLOBAL METHODS
+    method create( format:WAVFormat, bit_depth:Int32 )->WAVChannel
+      which (format)
+        case PCM
+          return WAVChannelPCM(format,bit_depth)
+
+        case IEEE_FLOAT
+          return WAVChannelIEEEFloat(format,bit_depth)
+
+        others
+          throw Error( "WAVDecoder cannot handle format $."(format) )
+      endWhich
+
+  PROPERTIES
+    format    : WAVFormat
+    bit_depth : Int32
+
+  METHODS
+    method add( sample:Real64 )
+      throw UnsupportedOperationError()
+
+    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
+      throw UnsupportedOperationError()
+
+    method count->Int32
+      throw UnsupportedOperationError()
+
+    method get( index:Int32 )->Real64
+      throw UnsupportedOperationError()
+
+    method read( reader:DataReader )
+      throw UnsupportedOperationError()
+
+    method reserve( n:Int32 )
+      noAction
+endClass
+
+class WAVChannelPCM : WAVChannel
+  PROPERTIES
+    samples = Int32[]
+    offset  : Int32
+
+  METHODS
+    method init( format, bit_depth )
+      which (bit_depth)
+        case 16: offset = 0x001_0000
+        case 24: offset = 0x100_0000
+        case 32: offset = 0
+        others
+          throw Error( "Unsupported PCM bit depth: $."(bit_depth) )
+      endWhich
+
+    method add( sample:Real64 )
+      samples.add( sample->Int32 )
+
+    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
+      if (new_format == format and new_bit_depth == bit_depth) return this
+
+      if (new_format == WAVFormat.IEEE_FLOAT)
+        local result = WAVChannelIEEEFloat(new_format,new_bit_depth)
+        local new_samples = result.samples
+        new_samples.reserve( count )
+        new_samples.add( (forEach in this.samples) / 2147483648.0 )
+        return result
+      else
+        throw UnsupportedOperationError( "[WAV] Cannot convert to $-bit format $."(new_bit_depth,new_format) )
+      endIf
+
+    method count->Int32
+      return samples.count
+
+    method get( index:Int32 )->Real64
+      return samples[index]
+
+    method read( reader:DataReader )
+      which (bit_depth)
+        case 16
+          samples.add( reader.read_int16_low_high :<<: 16 )
+        case 24
+          local sample = reader.read_int16_low_high
+          sample = (reader.read->Int32 :<<: 16) | sample
+          samples.add( sample :<<: 8 )
+        others
+          samples.add( reader.read_int32_low_high )
+      endWhich
+
+    method reserve( n:Int32 )
+      samples.reserve( n )
+endClass
+
+class WAVChannelIEEEFloat : WAVChannel
+  PROPERTIES
+    samples = Real32[]
+
+  METHODS
+    method init( format, bit_depth )
+      require bit_depth == 32
+
+    method add( sample:Real64 )
+      samples.add( sample->Real32 )
+
+    method converted( new_format:WAVFormat, new_bit_depth:Int32 )->WAVChannel
+      if (new_format == format and new_bit_depth == bit_depth) return this
+
+      if (new_format == WAVFormat.PCM)
+        local result = WAVChannelPCM(new_format,new_bit_depth)
+        local new_samples = result.samples
+        new_samples.reserve( count )
+        new_samples.add( (forEach in this.samples) * 2147483648.0 )
+        return result
+      else
+        throw UnsupportedOperationError( "[WAV] Cannot convert to $-bit format $."(new_bit_depth,new_format) )
+      endIf
+
+    method count->Int32
+      return samples.count
+
+    method get( index:Int32 )->Real64
+      return samples[index]
+
+    method read( reader:DataReader )
+      samples.add( reader.read_int32_low_high.real_bits )
+
+    method reserve( n:Int32 )
+      samples.reserve( n )
+endClass
+
