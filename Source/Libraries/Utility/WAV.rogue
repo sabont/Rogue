@@ -4,6 +4,7 @@ class WAV
     format      : WAVFormat
     bit_depth   : Int32
     sample_rate : Int32
+    page_align  : Logical
 
   METHODS
     method init( file:File )
@@ -12,14 +13,104 @@ class WAV
       endIf
 
     method init( format, bit_depth, sample_rate )
+      validate
+
+    method create_channel->WAVChannel
+      local channel = WAVChannel( this )
+      channels.add( channel )
+      return channel
 
     method description->String
       return "$ channel $-bit $ $ Hz" (channels.count,bit_depth,format,sample_rate)
 
     method save( file:File )->Logical
+      validate
       file.save( WAVEncoder.encode(this) )
       return true
+
+    method validate
+      which (format)
+        case PCM
+          which (bit_depth)
+            case 8, 16, 24, 32
+              noAction
+            others
+              throw Error( "WAV does not support $-bit PCM."(bit_depth) )
+          endWhich
+        case IEEE_FLOAT
+          if (bit_depth != 32)
+            throw Error( "WAV does not support $-bit floating point."(bit_depth) )
+          endIf
+        others
+          throw Error( "WAV cannot handle format $."(format) )
+      endWhich
 endClass
+
+class WAVChannel
+  PROPERTIES
+    wav       : WAV
+    samples   = Real32[]
+
+  METHODS
+    method init( wav )
+
+    method add( sample:Real64 )
+      samples.add( sample )
+
+    method count->Int32
+      return samples.count
+
+    method get( index:Int32 )->Real64
+      return samples[index]
+
+    method read( reader:DataReader )
+      which (wav.format)
+        case PCM
+          which (wav.bit_depth)
+            case 8
+              local sample = reader.read : Int32
+              samples.add( (sample - 128) / 255.0 )
+            case 16
+              local sample = reader.read_int16_low_high
+              if (sample & 0x8000) sample -= 65536
+              samples.add( ((sample+32768)/65535.0) * 2 - 1 )
+            case 24
+              local sample = reader.read_int16_low_high
+              sample = (reader.read->Int32 :<<: 16) | sample
+              if (sample & 0x80_0000) sample -= 0x100_0000
+              samples.add( ((sample+8388608)/16777215.0) * 2 - 1 )
+            others
+              samples.add( ((reader.read_int32_low_high+2147483648.0)/4294967295.0) * 2 - 1 )
+          endWhich
+        case IEEE_FLOAT
+          local sample = reader.read_int32_low_high.real_bits
+          samples.add( sample.clamped(-1.0,1.0) )
+      endWhich
+
+    method write( index:Int32, writer:DataWriter )
+      which (wav.format)
+        case PCM
+          which (wav.bit_depth)
+            case 8
+              writer.write( (samples[index].clamped(-0.5,0.5)*255 + 128)->Int32->Byte )
+            case 16
+              local sample = (samples[index] + 1.0) / 2.0   # -1..1 -> 0..1
+              writer.write_int16_low_high( sample*65535 - 32768 )
+            case 24
+              local sample = (samples[index] + 1.0) / 2.0   # -1..1 -> 0..1
+              block sample = ((sample * 16777215) - 8388608)->Int32
+                writer.write_int16_low_high( sample )
+                writer.write( sample:>>>:16 )
+              endBlock
+            others
+              local sample = (samples[index] + 1.0) / 2.0   # -1..1 -> 0..1
+              writer.write_int32_low_high( sample * 4294967295.0 - 2147483648.0 )
+          endWhich
+        case IEEE_FLOAT
+          writer.write_int32_low_high( samples[index]->Real32.integer_bits )
+      endWhich
+endClass
+
 
 class WAVDecoder [singleton]
   # http://www-mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
@@ -47,10 +138,9 @@ class WAVDecoder [singleton]
       reader.read_int16_low_high  # block size in bytes
 
       wav.bit_depth = reader.read_int16_low_high
+      wav.validate
 
-      loop channel_count
-        wav.channels.add( WAVChannel(wav.format,wav.bit_depth) )
-      endLoop
+      loop (channel_count) wav.create_channel
 
       while (reader.has_another)
         read_another_chunk
@@ -65,7 +155,7 @@ class WAVDecoder [singleton]
       which (id)
         case 0x64617461   # "data"
           local n = size / ((wav.bit_depth / 8) * wav.channels.count)
-          (forEach in wav.channels).reserve( n )
+          (forEach in wav.channels).samples.reserve( n )
           loop (n)
             (forEach in wav.channels).read( reader )
           endLoop
@@ -73,6 +163,7 @@ class WAVDecoder [singleton]
         case 0x464C4C52   # "FLLR"
           # A FLLR chunk aligns the read position to a multiple of 4096 minus 8
           # so that the content of the data chunk is 4K page-aligned.
+          wav.page_align = true
           reader.skip( size )
 
         others            # Unknown chunk type
@@ -108,9 +199,12 @@ class WAVEncoder [singleton]
       writer.write_int16_low_high( (wav.bit_depth/8) * wav.channels.count )
       writer.write_int16_low_high( wav.bit_depth )
 
-      #writer.write_int32( 0x464C4C52 )    # "FLLR"
-      #writer.write_int32_low_high( 4044 )
-      #loop (4044) writer.write(0)
+      if (wav.page_align)
+        # FLLR chunk to make data start on a 4K boundary
+        writer.write_int32( 0x464C4C52 )    # "FLLR"
+        writer.write_int32_low_high( 4044 )
+        loop (4044) writer.write(0)
+      endIf
 
       writer.write_int32( 0x64617461 )  # "data"
       local sample_count = which{ wav.channels.count:wav.channels.first.count || 0 }
@@ -125,7 +219,7 @@ class WAVEncoder [singleton]
     method encoded_size( wav:WAV )->Int32
       local size = 36  # header
       size += 8        # "data" chunk header
-      #size += 4052     # FLLR
+      if (wav.page_align) size += 4052 # FLLR chunk to make data start on a 4K boundary
       if (wav.channels.count)
         size += wav.channels.count * (wav.bit_depth / 8) * wav.channels.first.count
       endIf
@@ -143,64 +237,4 @@ enum WAVFormat
     method exists->Logical
       return categories.contains(this)
 endEnum
-
-class WAVChannel
-  PROPERTIES
-    format    : WAVFormat
-    bit_depth : Int32
-    samples   = Real32[]
-
-  METHODS
-    method init( format, bit_depth )
-      which (format)
-        case PCM, IEEE_FLOAT: noAction
-        others:               throw Error( "WAVDecoder cannot handle format $."(format) )
-      endWhich
-
-    method add( sample:Real64 )
-      samples.add( sample )
-
-    method count->Int32
-      return samples.count
-
-    method get( index:Int32 )->Real64
-      return samples[index]
-
-    method read( reader:DataReader )
-      which (format)
-        case PCM
-          which (bit_depth)
-            case 16
-              samples.add( (reader.read_int16_low_high:<<:16) / 32768.0 )
-            case 24
-              local sample = reader.read_int16_low_high
-              sample = (reader.read->Int32 :<<: 16) | sample
-              samples.add( (sample:<<:8) / 8388608.0 )
-            others
-              samples.add( reader.read_int32_low_high / 2147483648.0 )
-          endWhich
-        case IEEE_FLOAT
-          samples.add( reader.read_int32_low_high.real_bits )
-      endWhich
-
-    method reserve( n:Int32 )
-      samples.reserve( n )
-
-    method write( index:Int32, writer:DataWriter )
-      which (format)
-        case PCM
-          which (bit_depth)
-            case 16
-              writer.write_int16_low_high( (samples[index] * 32768)->Int32 :>>>: 16 )
-            case 24
-              local sample = (samples[index] * 8388608)->Int32 :>>>: 8
-              writer.write_int16_low_high( sample )
-              writer.write( sample:>>>:16 )
-            others
-              writer.write_int32_low_high( samples[index] * 2147483648.0 )
-          endWhich
-        case IEEE_FLOAT
-          writer.write_int32_low_high( samples[index]->Real32.integer_bits )
-      endWhich
-endClass
 
