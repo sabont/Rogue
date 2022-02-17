@@ -28,11 +28,15 @@
 module Bitmap
   uses Geometry [export]
 
-$include "Bitmap/BMP.rogue"
 $include "Bitmap/Color.rogue"
 $include "Bitmap/HSB.rogue"
-$include "Bitmap/JPEG.rogue"
-$include "Bitmap/PNG.rogue"
+
+$if not defined(CUSTOM_BITMAP_IO)
+  $include "Bitmap/BMP.rogue"
+  $include "Bitmap/JPEG.rogue"
+  $include "Bitmap/PNG.rogue"
+$endIf
+
 
 class Bitmap
   GLOBAL PROPERTIES
