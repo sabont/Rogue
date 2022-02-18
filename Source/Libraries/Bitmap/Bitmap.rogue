@@ -47,6 +47,39 @@ class Bitmap
     method create( width:Int32, height:Int32 )->Bitmap
       return Bitmap( width, height, Color(0) )
 
+    method create( file:File )->Bitmap
+      return Bitmap( Byte[](file) )
+
+    method create( bytes:Byte[] )->Bitmap
+      local result = decode( bytes )
+      if (result) return result
+      result = Bitmap(1,1)
+      result.error = true
+      return result
+
+$if not defined(CUSTOM_BITMAP_IO)
+    method decode( bytes:Byte[] )->Bitmap
+      if (bytes.count < 4) return null
+
+      if (bytes[0] == 0x89 and bytes[1] == 'P' and bytes[2] == 'N' and bytes[3] == 'G')
+        local decoder = PNGDecoder()
+        return decoder.decode( bytes, null )
+
+      elseIf (bytes[0] == 0xFF and bytes[1] == 0xD8)
+        local decoder = JPEGDecoder()
+        return decoder.decode( bytes, null )
+
+      elseIf (bytes[0] == 'B' and bytes[1] == 'M')
+        local decoder = BMPDecoder()
+        return decoder.decode( bytes, null )
+
+      else
+        return null
+
+      endIf
+$endIf
+
+
   PROPERTIES
     width                  : Int32
     height                 : Int32
@@ -61,26 +94,6 @@ class Bitmap
 
     method init( width, height, color:Color ) [essential]
       init( width, height, Color[]( width*height, color ) )
-
-    method init( file:File )
-      if (file and file.filepath)
-        filepath = file.filepath
-        init( file.load_as_bytes )
-      else
-        if (not file)
-          println "Attempting to load Bitmap with null file reference."
-        else
-          println "Attempting to load Bitmap with null filepath."
-        endIf
-        init( XY(1,1) )
-        error = true
-      endIf
-
-    method init( bytes:Byte[] )
-      if (not decode(bytes))
-        init( XY(1,1) )
-        error = true
-      endIf
 
     method init( _size:XY, pixels )
       init( _size.x, _size.y, pixels )
@@ -523,25 +536,6 @@ class Bitmap
 
       return this
 
-    method decode( bytes:Byte[] )->Logical
-      if (bytes.count < 4) return false
-
-      if (bytes[0] == 0x89 and bytes[1] == 'P' and bytes[2] == 'N' and bytes[3] == 'G')
-        local decoder = PNGDecoder()
-        return decoder.decode( bytes, this )?
-
-      elseIf (bytes[0] == 0xFF and bytes[1] == 0xD8)
-        local decoder = JPEGDecoder()
-        return decoder.decode( bytes, this )?
-
-      elseIf (bytes[0] == 'B' and bytes[1] == 'M')
-        local decoder = BMPDecoder()
-        return decoder.decode( bytes, this )?
-
-      endIf
-
-      return false
-
     method get( x:Int32, y:Int32 )->Color
       if (x < 0 or y < 0 or x >= width or y >= height)
         return Color(0)
@@ -867,11 +861,13 @@ class Bitmap
     method description->String
       return "($x$ Bitmap)" (width,height)
 
+$if not defined(CUSTOM_BITMAP_IO)
     method to_png_bytes->Byte[]
       return PNGEncoder().encode( this )
 
     method to_jpeg_bytes( quality=75:Int32 )->Byte[]
       return JPEGEncoder().encode( this, null, quality )
+$endIf
 
 endClass
 
