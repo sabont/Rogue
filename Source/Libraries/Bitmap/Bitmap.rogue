@@ -609,24 +609,23 @@ $endIf
       fill( Triangle(quad.a,quad.b,quad.c), color )
       fill( Triangle(quad.a,quad.c,quad.d), color )
 
-    method premultiply_alpha->this
+    method premultiply_alpha
       # Multiplies the R,G,B components of each color by their current
       # alpha value - so Color(255,192,0,127) becomes Color(127,95,0,127).
-      if (not is_premultiplied_alpha)
-        is_premultiplied_alpha = true
-        forEach (i of pixels)
-          local argb = pixels[i].argb
-          local a = argb :>>>: 24 & 255
-          local r = argb :>>>: 16 & 255
-          local g = argb :>>>: 8 & 255
-          local b = argb & 255
-          r = (r * a) / 255
-          g = (g * a) / 255
-          b = (b * a) / 255
-          pixels[i] = Color( (a:<<:24) | (r:<<:16) | (g:<<:8) | b )
-        endForEach
-      endIf
-      return this
+      if (is_premultiplied_alpha) return
+
+      is_premultiplied_alpha = true
+      forEach (i of pixels)
+        local argb = pixels[i].argb
+        local a = argb :>>>: 24 & 255
+        local r = argb :>>>: 16 & 255
+        local g = argb :>>>: 8 & 255
+        local b = argb & 255
+        r = (r * a) / 255
+        g = (g * a) / 255
+        b = (b * a) / 255
+        pixels[i] = Color( (a:<<:24) | (r:<<:16) | (g:<<:8) | b )
+      endForEach
 
     method reframe( new_width:Int32, new_height:Int32, anchor=Anchor.TOP_LEFT:Anchor, pad_color=Color(0):Color )
       crop( new_width, new_height, anchor, &=pad_color )
